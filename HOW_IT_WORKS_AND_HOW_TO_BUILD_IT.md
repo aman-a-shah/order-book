@@ -2,7 +2,7 @@
 
 ## What This Is
 
-This is a low-latency limit order book. It accepts order commands, matches aggressive orders against resting liquidity, stores passive orders by price-time priority, supports cancels by order id, and can be driven from a separate mock market-feed thread through a lock-free queue.
+This is a low-latency limit order book. It accepts order commands, matches aggressive orders against resting liquidity, stores passive orders by price-time priority, supports cancels, modifies, cancel-replaces, trade logging, depth snapshots, multi-symbol routing, binary message decoding, deterministic replay, and a separate mock market-feed thread through a lock-free queue.
 
 The important engineering constraint is determinism: memory is bounded, the critical path does not allocate, the hot data structures are contiguous, and the producer-consumer path avoids locks.
 
@@ -12,10 +12,12 @@ The important engineering constraint is determinism: memory is bounded, the crit
 2. It pushes each command into `SpscQueue<OrderCommand, N>`.
 3. The matching thread pops commands from the queue.
 4. The matching thread calls `OrderBook::process`.
-5. `process` dispatches to limit, market, or cancel handling.
+5. `process` dispatches to limit, market, cancel, modify, or replace handling.
 6. Limit and market orders match against the opposite side while prices cross.
 7. Unfilled limit quantity becomes a resting order.
 8. Cancels remove the order from both its price-level FIFO list and the order-id index.
+9. Each fill is appended to a fixed-capacity trade log.
+10. Multi-symbol mode routes messages to one independent book per instrument.
 
 ## Core Data Structures
 
@@ -28,6 +30,8 @@ The important engineering constraint is determinism: memory is bounded, the crit
 - `order_id`: globally unique id for accepted resting orders.
 - `price`: integer tick price for limit orders.
 - `quantity`: integer share/contract quantity.
+- `new_order_id`: optional replacement id for cancel-replace commands.
+- `symbol_id`: compact integer instrument id for multi-symbol routing.
 
 Prices are integers instead of floating point values because real matching engines work in ticks. This avoids rounding errors and makes comparisons deterministic.
 
@@ -118,6 +122,58 @@ Cancel flow:
 6. Remove the id from `OrderIndex`.
 7. Return the order object to `ObjectPool`.
 
+### Modify
+
+Modify supports quantity reduction. Reducing quantity preserves time priority because the order remains in the same FIFO position. Increasing quantity is rejected because many real venues treat size increases as priority-changing activity.
+
+### Replace
+
+Cancel-replace removes the old order and inserts a new limit order. If the price is marketable, the replacement can trade immediately. If it rests, it joins the tail of the destination price level and therefore loses time priority.
+
+### Trade Log
+
+Every fill records:
+
+- sequence number.
+- taker order id.
+- maker order id.
+- execution price.
+- execution quantity.
+- aggressor side.
+
+The trade log is a fixed `std::array`, so recording fills is deterministic and does not allocate.
+
+### Market Depth
+
+The book can copy top-N bid and ask levels into caller-provided arrays. This is useful for demos, tests, and market-data publishing without giving outside code mutable access to internal book storage.
+
+## Multi-Symbol Routing
+
+`MultiBookRouter<N, ...>` owns `N` independent order books. `OrderCommand::symbol_id` selects the target book. Invalid symbol ids are rejected before touching any book.
+
+This is the natural extension from one instrument to a small venue-like matching service. It also makes benchmark results more realistic because production systems route by symbol before matching.
+
+## Binary Protocol
+
+`binary_protocol.hpp` encodes each command into a fixed 40-byte little-endian message:
+
+- type.
+- side.
+- order id.
+- price.
+- quantity.
+- new order id.
+- symbol id.
+- magic/version marker.
+
+Fixed-width messages are easy to parse quickly because there is no delimiter scanning and every field lives at a known offset.
+
+## Deterministic Replay
+
+`data/sample_replay.csv` is an audit-friendly event stream. `src/replay_runner.cpp` replays it and prints a deterministic summary. `tests/replay_tests.cpp` compares that output against `tests/replay_expected.txt`.
+
+This gives the project a golden-file regression suite: if matching behavior changes, the replay test catches the exact observable difference.
+
 ## Lock-Free Feed Queue
 
 `SpscQueue<T, Capacity>` is a ring buffer with exactly one producer and exactly one consumer.
@@ -163,6 +219,10 @@ The matching loop itself can use top-of-book because the arrays are sorted, but 
 
 `src/pipeline_demo.cpp` measures end-to-end producer thread to queue to consumer thread throughput.
 
+`src/replay_bench.cpp` measures binary decode, symbol routing, and matching over repeated replay events.
+
+Latency metrics use a fixed power-of-two histogram instead of storing every sample. That keeps benchmark memory usage bounded and reports p50, p90, p99, p99.9, max, and mean.
+
 `include/lob/timing.hpp` uses:
 
 - `__rdtsc()` on x86.
@@ -184,6 +244,7 @@ You need:
 - RAII and object lifetime rules.
 - integer types from `<cstdint>`.
 - compile-time assertions with `static_assert`.
+- binary serialization and endian-safe field encoding.
 
 ### Build Tooling
 
@@ -192,6 +253,7 @@ You need:
 - Makefiles.
 - compiler flags such as `-O3`, `-DNDEBUG`, `-g`, and `-fsanitize=thread`.
 - basic command-line profiling workflow.
+- golden-file regression testing.
 - ability to build with Clang or GCC.
 
 No external framework is required. This is deliberate: the point is to show control over memory, CPU behavior, and concurrency primitives.
@@ -206,6 +268,8 @@ You need:
 - heap allocation latency.
 - CPU affinity and thread pinning.
 - producer-consumer pipelines.
+- feed message parsing.
+- symbol routing.
 - data races and sanitizer validation.
 - the difference between throughput, mean latency, tail latency, and jitter.
 
@@ -225,6 +289,8 @@ You need:
 
 - limit orders.
 - market orders.
+- modify orders.
+- cancel-replace orders.
 - bid/ask sides.
 - spread.
 - top of book.
@@ -243,6 +309,7 @@ You need:
 - open-addressed hash tables.
 - ring buffers.
 - fixed-size object pools.
+- fixed-size histograms.
 - amortized versus worst-case reasoning.
 - why Big-O is not enough for latency-sensitive systems.
 
@@ -269,19 +336,26 @@ You do not need stochastic calculus, options pricing, or advanced quant research
 6. Add market order behavior.
 7. Add a fixed open-addressed order-id index.
 8. Implement cancel by unlinking from the FIFO list and returning the order to the pool.
-9. Add deterministic unit tests for full fills, partial fills, cancels, and FIFO priority.
-10. Implement the SPSC ring buffer with acquire/release atomics.
-11. Add a threaded producer-consumer demo.
-12. Add SIMD scan helpers for packed price arrays.
-13. Add a hot-path latency benchmark.
-14. Add a sanitizer target.
-15. Profile, inspect cache behavior, and refine only after measuring.
+9. Add modify and cancel-replace semantics.
+10. Add a fixed-capacity trade log.
+11. Add top-N depth snapshots.
+12. Add deterministic unit tests for full fills, partial fills, cancels, modifies, replaces, and FIFO priority.
+13. Implement the SPSC ring buffer with acquire/release atomics.
+14. Add a threaded producer-consumer demo.
+15. Add SIMD scan helpers for packed price arrays.
+16. Add a CSV replay parser and golden-file replay test.
+17. Add a fixed-width binary protocol.
+18. Add multi-symbol routing.
+19. Add a fixed-size latency histogram.
+20. Add hot-path and replay benchmarks.
+21. Add a sanitizer target.
+22. Profile, inspect cache behavior, and refine only after measuring.
 
 ## What To Say In An Interview
 
 The strongest explanation is:
 
-> I built this around hardware locality. The matching thread owns the book, so the book itself does not need locks. Feed ingestion is decoupled with an SPSC queue, which avoids mutexes and avoids the CAS contention of an MPMC queue. Orders are stored in a fixed object pool, price levels are contiguous arrays, and cancels use a bounded open-addressed index. The design trades some theoretical insertion complexity for predictable cache-resident memory access, which is the right tradeoff for a small, hot order book.
+> I built this around hardware locality. The matching thread owns the book, so the book itself does not need locks. Feed ingestion is decoupled with an SPSC queue, which avoids mutexes and avoids the CAS contention of an MPMC queue. Orders are stored in a fixed object pool, price levels are contiguous arrays, cancels use a bounded open-addressed index, and replay/binary benchmarks exercise the same path used by the engine. The design trades some theoretical insertion complexity for predictable cache-resident memory access, which is the right tradeoff for a small, hot order book.
 
 Be ready to defend:
 
@@ -291,13 +365,12 @@ Be ready to defend:
 - why acquire/release is enough for the SPSC queue.
 - why p99 latency matters more than only mean latency.
 - why benchmarks must describe their workload honestly.
+- why modify preserves priority but replace loses it.
+- how binary decoding and symbol routing affect end-to-end latency.
 
 ## Useful Next Enhancements
 
-- Add modify/replace orders.
-- Add multiple symbols with one book per instrument.
-- Add binary market-data message parsing.
 - Add persistent trade/event logs.
 - Add Linux `perf` and Cachegrind reports on an x86 workstation.
 - Add a replay benchmark from a real historical order stream.
-- Add a better latency histogram without storing every sample.
+- Add a FIX/OUCH-style protocol adapter.

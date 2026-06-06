@@ -1,0 +1,13 @@
+events=11
+accepted=11
+rejected=0
+trades=5
+dropped_trades=0
+live_orders=2
+best_bid=10001x10
+best_ask=10003x25
+trade[0]=1,3001,2002,10001,15,B
+trade[1]=2,2004,1001,10000,25,S
+trade[2]=3,1003,2004,10000,35,B
+trade[3]=4,1003,2002,10001,5,B
+trade[4]=5,3002,1003,10001,20,S

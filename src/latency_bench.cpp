@@ -3,8 +3,8 @@
 #include <iostream>
 #include <limits>
 #include <memory>
-#include <vector>
 
+#include "lob/histogram.hpp"
 #include "lob/order_book.hpp"
 #include "lob/timing.hpp"
 
@@ -13,8 +13,7 @@ int main(int argc, char** argv) {
     using Book = lob::OrderBook<1 << 16, 1024, 1 << 17>;
 
     auto book = std::make_unique<Book>();
-    std::vector<std::uint64_t> samples;
-    samples.reserve(events);
+    lob::PowerOfTwoHistogram<> histogram;
 
     lob::Stopwatch wall;
     for (std::uint64_t i = 0; i < events; ++i) {
@@ -34,25 +33,19 @@ int main(int argc, char** argv) {
             std::cerr << "benchmark command rejected at event " << i << '\n';
             return 1;
         }
-        samples.push_back(end - start);
+        histogram.observe(end - start);
     }
 
     const double seconds = wall.elapsed_seconds();
-    std::sort(samples.begin(), samples.end());
-    const auto p50 = samples[samples.size() / 2];
-    const auto p99 = samples[(samples.size() * 99) / 100];
-    const auto max = samples.back();
-
-    long double total = 0;
-    for (const auto value : samples) total += value;
-    const auto mean = static_cast<double>(total / samples.size());
 
     std::cout << "events=" << events << '\n';
     std::cout << "throughput_events_per_second=" << static_cast<std::uint64_t>(events / seconds) << '\n';
-    std::cout << "mean_cycles_or_ticks=" << mean << '\n';
-    std::cout << "p50_cycles_or_ticks=" << p50 << '\n';
-    std::cout << "p99_cycles_or_ticks=" << p99 << '\n';
-    std::cout << "max_cycles_or_ticks=" << max << '\n';
+    std::cout << "mean_cycles_or_ticks=" << histogram.mean() << '\n';
+    std::cout << "p50_cycles_or_ticks_upper_bound=" << histogram.percentile(50.0) << '\n';
+    std::cout << "p90_cycles_or_ticks_upper_bound=" << histogram.percentile(90.0) << '\n';
+    std::cout << "p99_cycles_or_ticks_upper_bound=" << histogram.percentile(99.0) << '\n';
+    std::cout << "p999_cycles_or_ticks_upper_bound=" << histogram.percentile(99.9) << '\n';
+    std::cout << "max_cycles_or_ticks=" << histogram.max() << '\n';
     std::cout << "live_orders=" << book->live_order_count() << '\n';
     return 0;
 }

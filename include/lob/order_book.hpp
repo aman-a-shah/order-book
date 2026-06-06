@@ -19,6 +19,12 @@ public:
         if (command.type == OrderType::Cancel) {
             return cancel(command.order_id);
         }
+        if (command.type == OrderType::Modify) {
+            return modify(command);
+        }
+        if (command.type == OrderType::Replace) {
+            return replace(command);
+        }
         if (command.quantity == 0 || command.order_id == 0) {
             ExecutionReport report;
             report.incoming_order_id = command.order_id;
@@ -46,6 +52,19 @@ public:
 
     const PriceLevel* best_bid() const { return bid_count_ == 0 ? nullptr : &bids_[0]; }
     const PriceLevel* best_ask() const { return ask_count_ == 0 ? nullptr : &asks_[0]; }
+    const Trade* trades() const { return trades_.data(); }
+    std::size_t trade_count() const { return trade_count_; }
+    std::size_t dropped_trade_count() const { return dropped_trade_count_; }
+
+    template <std::size_t N>
+    std::size_t bid_depth(std::array<DepthLevel, N>& out) const {
+        return copy_depth(bids_, bid_count_, out);
+    }
+
+    template <std::size_t N>
+    std::size_t ask_depth(std::array<DepthLevel, N>& out) const {
+        return copy_depth(asks_, ask_count_, out);
+    }
 
     std::size_t first_crossing_ask(std::uint32_t limit_price) const {
         return simd::find_first_ask_at_or_below(ask_prices_.data(), ask_count_, limit_price);
@@ -139,6 +158,70 @@ private:
         return report;
     }
 
+    ExecutionReport modify(const OrderCommand& command) {
+        ExecutionReport report;
+        report.incoming_order_id = command.order_id;
+        report.requested_quantity = command.quantity;
+        Order* order = index_.find(command.order_id);
+        if (order == nullptr || command.quantity == 0 || command.quantity > order->quantity) {
+            report.rejected = true;
+            return report;
+        }
+
+        auto& levels = order->side == Side::Buy ? bids_ : asks_;
+        const auto count = order->side == Side::Buy ? bid_count_ : ask_count_;
+        const std::size_t level_idx = find_level(levels, count, order->price);
+        if (level_idx == count) {
+            report.rejected = true;
+            return report;
+        }
+
+        const std::uint32_t reduction = order->quantity - command.quantity;
+        order->quantity = command.quantity;
+        levels[level_idx].total_volume -= reduction;
+        report.accepted = true;
+        report.modified = true;
+        report.resting = true;
+        return report;
+    }
+
+    ExecutionReport replace(const OrderCommand& command) {
+        const std::uint64_t original_order_id = command.order_id;
+        const std::uint64_t replacement_order_id =
+            command.new_order_id == 0 ? command.order_id : command.new_order_id;
+        Order* old_order = index_.find(original_order_id);
+        if (old_order == nullptr || command.quantity == 0 || command.price == 0) {
+            ExecutionReport report;
+            report.incoming_order_id = original_order_id;
+            report.requested_quantity = command.quantity;
+            report.rejected = true;
+            return report;
+        }
+        const Side side = old_order->side;
+        const auto cancel_report = cancel(original_order_id);
+        if (!cancel_report.accepted) {
+            ExecutionReport report;
+            report.incoming_order_id = original_order_id;
+            report.requested_quantity = command.quantity;
+            report.rejected = true;
+            return report;
+        }
+
+        OrderCommand replacement{
+            OrderType::Limit,
+            side,
+            replacement_order_id,
+            command.price,
+            command.quantity,
+            0,
+            command.symbol_id
+        };
+        auto report = execute_limit(replacement);
+        report.incoming_order_id = original_order_id;
+        report.replaced = report.accepted;
+        return report;
+    }
+
     void match_against_asks(std::uint32_t& remaining, std::uint32_t limit_price, ExecutionReport& report) {
         while (remaining > 0 && ask_count_ > 0 && asks_[0].price <= limit_price) {
             match_level(asks_[0], remaining, report);
@@ -167,6 +250,9 @@ private:
             report.filled_quantity += fill;
             report.notional += static_cast<std::uint64_t>(fill) * resting->price;
             ++report.trade_count;
+            if (!record_trade(report.incoming_order_id, resting->order_id, resting->price, fill, resting->side)) {
+                report.trade_log_full = true;
+            }
 
             if (resting->quantity == 0) {
                 unlink_order(level, resting);
@@ -264,12 +350,51 @@ private:
         prices[count] = 0;
     }
 
+    bool record_trade(std::uint64_t taker_order_id,
+                      std::uint64_t maker_order_id,
+                      std::uint32_t price,
+                      std::uint32_t quantity,
+                      Side maker_side) {
+        if (trade_count_ == trades_.size()) {
+            ++dropped_trade_count_;
+            return false;
+        }
+        trades_[trade_count_] = Trade{
+            trade_sequence_++,
+            taker_order_id,
+            maker_order_id,
+            price,
+            quantity,
+            maker_side == Side::Buy ? Side::Sell : Side::Buy
+        };
+        ++trade_count_;
+        return true;
+    }
+
+    template <std::size_t N>
+    static std::size_t copy_depth(const std::array<PriceLevel, MaxPriceLevels>& levels,
+                                  std::size_t count,
+                                  std::array<DepthLevel, N>& out) {
+        const std::size_t copied = count < N ? count : N;
+        for (std::size_t i = 0; i < copied; ++i) {
+            out[i] = DepthLevel{levels[i].price, levels[i].total_volume, levels[i].order_count};
+        }
+        for (std::size_t i = copied; i < N; ++i) {
+            out[i] = DepthLevel{};
+        }
+        return copied;
+    }
+
     ObjectPool<MaxOrders> pool_{};
     OrderIndex<IndexCapacity> index_{};
     alignas(64) std::array<PriceLevel, MaxPriceLevels> bids_{};
     alignas(64) std::array<PriceLevel, MaxPriceLevels> asks_{};
     alignas(64) std::array<std::uint32_t, MaxPriceLevels> bid_prices_{};
     alignas(64) std::array<std::uint32_t, MaxPriceLevels> ask_prices_{};
+    alignas(64) std::array<Trade, MaxOrders> trades_{};
+    std::uint64_t trade_sequence_{1};
+    std::size_t trade_count_{0};
+    std::size_t dropped_trade_count_{0};
     std::size_t bid_count_{0};
     std::size_t ask_count_{0};
 };
