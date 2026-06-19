@@ -88,3 +88,21 @@ make replay-bench
 `make visualize` prints each replayed event, final top-of-book depth, and the resulting trade tape.
 
 For deeper measurement notes, see [PERFORMANCE.md](PERFORMANCE.md).
+
+## Research Note (PDF)
+
+`site/` holds an editorial research-note PDF that walks the engine end to end — feed
+protocol, lock-free transport, matching/memory layout, correctness, and benchmarked
+latency/throughput — with typeset math and hand-rolled SVG charts. **Every figure is
+generated from a real engine run; no number is hand-written.**
+
+```sh
+make site                       # build/site_export -> JSON (runs the real engine)
+PYTHONPATH=src python3 site/export_data.py   # assemble site/data.json (+ tests, TSAN)
+bash site/build_pdf.sh          # regenerate data, then print site/low-latency-order-book.pdf
+```
+
+`build/site_export` runs the add/cancel hot path, the binary decode→route→match replay,
+the threaded SPSC pipeline (swept over size), and a snapshotted depth-ladder scenario,
+emitting the histogram, throughput, and depth data the page binds to. The page is a single
+HTML/CSS/JS document printed to PDF through headless Chrome.

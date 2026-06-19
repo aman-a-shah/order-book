@@ -1,0 +1,349 @@
+{
+  "simd": "NEON",
+  "latency": {
+    "events": 5000000,
+    "runs": 5,
+    "throughput_runs": [
+      7764500.0,
+      14249800.0,
+      15129900.0,
+      16217900.0,
+      19188300.0
+    ],
+    "throughput_median": 15129900.0,
+    "throughput_min": 7764500.0,
+    "throughput_max": 19188300.0,
+    "mean": 67.9201,
+    "p50": 63,
+    "p90": 127,
+    "p99": 511,
+    "p999": 1023,
+    "max": 12120228,
+    "hist": {
+      "ub": [
+        1,
+        3,
+        7,
+        15,
+        31,
+        63,
+        127,
+        255,
+        511,
+        1023,
+        2047,
+        4095,
+        8191,
+        16383,
+        32767,
+        65535,
+        131071,
+        262143,
+        524287,
+        1048575,
+        2097151,
+        4194303,
+        8388607,
+        16777215
+      ],
+      "count": [
+        1959918,
+        0,
+        0,
+        0,
+        1014,
+        1748420,
+        801051,
+        409935,
+        72043,
+        4934,
+        738,
+        137,
+        512,
+        767,
+        263,
+        136,
+        61,
+        33,
+        18,
+        11,
+        5,
+        1,
+        2,
+        1
+      ]
+    },
+    "throughput_peak": 19188300.0
+  },
+  "replay": {
+    "events": 1100000,
+    "rejected": 0,
+    "throughput": 2804400.0,
+    "mean": 311.429,
+    "p50": 127,
+    "p90": 511,
+    "p99": 511,
+    "p999": 16383,
+    "max": 20282147,
+    "hist": {
+      "ub": [
+        1,
+        3,
+        7,
+        15,
+        31,
+        63,
+        127,
+        255,
+        511,
+        1023,
+        2047,
+        4095,
+        8191,
+        16383,
+        32767,
+        65535,
+        131071,
+        262143,
+        524287,
+        1048575,
+        2097151,
+        4194303,
+        8388607,
+        16777215,
+        33554431
+      ],
+      "count": [
+        250401,
+        0,
+        0,
+        0,
+        153,
+        227110,
+        189257,
+        315854,
+        109715,
+        5669,
+        142,
+        47,
+        270,
+        505,
+        352,
+        232,
+        132,
+        64,
+        33,
+        31,
+        17,
+        10,
+        2,
+        2,
+        2
+      ]
+    },
+    "throughput_peak": 8748570.0
+  },
+  "pipeline": {
+    "events": 1000000,
+    "throughput": 2730230.0,
+    "throughput_max": 4421320.0,
+    "resting": 1000000,
+    "scaling": {
+      "n": [
+        50000,
+        100000,
+        250000,
+        500000,
+        750000,
+        1000000
+      ],
+      "throughput": [
+        3405700.0,
+        4421320.0,
+        1332650.0,
+        2054760.0,
+        4060910.0,
+        1820020.0
+      ]
+    }
+  },
+  "depth": {
+    "best_bid": 9999,
+    "best_ask": 10002,
+    "spread": 3,
+    "mid": 10000.5,
+    "bids": [
+      {
+        "price": 9999,
+        "qty": 23,
+        "orders": 3,
+        "cum": 23
+      },
+      {
+        "price": 9998,
+        "qty": 44,
+        "orders": 4,
+        "cum": 67
+      },
+      {
+        "price": 9997,
+        "qty": 33,
+        "orders": 3,
+        "cum": 100
+      },
+      {
+        "price": 9996,
+        "qty": 60,
+        "orders": 5,
+        "cum": 160
+      },
+      {
+        "price": 9995,
+        "qty": 48,
+        "orders": 4,
+        "cum": 208
+      },
+      {
+        "price": 9994,
+        "qty": 66,
+        "orders": 6,
+        "cum": 274
+      },
+      {
+        "price": 9993,
+        "qty": 78,
+        "orders": 6,
+        "cum": 352
+      }
+    ],
+    "asks": [
+      {
+        "price": 10002,
+        "qty": 12,
+        "orders": 1,
+        "cum": 12
+      },
+      {
+        "price": 10003,
+        "qty": 36,
+        "orders": 3,
+        "cum": 48
+      },
+      {
+        "price": 10004,
+        "qty": 52,
+        "orders": 4,
+        "cum": 100
+      },
+      {
+        "price": 10005,
+        "qty": 44,
+        "orders": 4,
+        "cum": 144
+      },
+      {
+        "price": 10006,
+        "qty": 60,
+        "orders": 5,
+        "cum": 204
+      },
+      {
+        "price": 10007,
+        "qty": 65,
+        "orders": 5,
+        "cum": 269
+      },
+      {
+        "price": 10008,
+        "qty": 72,
+        "orders": 6,
+        "cum": 341
+      }
+    ],
+    "trades": [
+      {
+        "seq": 1,
+        "price": 10001,
+        "qty": 8,
+        "side": "BUY"
+      },
+      {
+        "seq": 2,
+        "price": 10001,
+        "qty": 8,
+        "side": "BUY"
+      },
+      {
+        "seq": 3,
+        "price": 10002,
+        "qty": 12,
+        "side": "BUY"
+      },
+      {
+        "seq": 4,
+        "price": 10000,
+        "qty": 10,
+        "side": "SELL"
+      },
+      {
+        "seq": 5,
+        "price": 10000,
+        "qty": 10,
+        "side": "SELL"
+      },
+      {
+        "seq": 6,
+        "price": 9999,
+        "qty": 4,
+        "side": "SELL"
+      }
+    ],
+    "trade_count": 6
+  },
+  "structure": {
+    "price_level_bytes": 32,
+    "order_bytes": 40,
+    "command_bytes": 40,
+    "msg_bytes": 40,
+    "spsc_capacity": 65536,
+    "spsc_bytes": 2621568,
+    "book_bytes": 8986816,
+    "cache_line": 64,
+    "book_mb": 8.6,
+    "spsc_mb": 2.5
+  },
+  "tests": [
+    {
+      "name": "order_book_tests",
+      "desc": "Matching, partial/full fills, price-time priority, modify, replace, depth, SPSC FIFO",
+      "pass": true,
+      "detail": "All order book and queue tests passed"
+    },
+    {
+      "name": "protocol_tests",
+      "desc": "40-byte binary message encode / decode round-trip",
+      "pass": true,
+      "detail": "Binary protocol test passed"
+    },
+    {
+      "name": "replay_golden",
+      "desc": "Deterministic replay matches the committed golden output byte-for-byte",
+      "pass": true,
+      "detail": "golden match"
+    }
+  ],
+  "tsan": {
+    "events": 10000,
+    "races": 0,
+    "clean": true
+  },
+  "meta": {
+    "date": "2026-06-19",
+    "generated_utc": "2026-06-19T20:54Z",
+    "platform": "Darwin arm64",
+    "compiler": "Apple clang version 17.0.0 (clang-1700.3.19.1)",
+    "cpu": "Apple M4",
+    "git": "fa13d62",
+    "standard": "C++17"
+  }
+}

@@ -5,7 +5,7 @@ TSANFLAGS ?= -std=c++17 -O1 -g -fsanitize=thread -fno-omit-frame-pointer -Wall -
 
 BUILD_DIR := build
 
-.PHONY: all test bench pipeline replay replay-bench visualize tsan clean
+.PHONY: all test bench pipeline replay replay-bench visualize tsan site clean
 
 all: test bench pipeline replay
 
@@ -36,6 +36,9 @@ $(BUILD_DIR)/replay_bench: src/replay_bench.cpp include/lob/*.hpp | $(BUILD_DIR)
 $(BUILD_DIR)/visualizer: src/visualizer.cpp include/lob/*.hpp | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) $< -o $@
 
+$(BUILD_DIR)/site_export: src/site_export.cpp include/lob/*.hpp | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) $< -o $@
+
 $(BUILD_DIR)/tsan_pipeline: src/pipeline_demo.cpp include/lob/*.hpp | $(BUILD_DIR)
 	$(CXX) $(TSANFLAGS) $< -o $@
 
@@ -61,6 +64,9 @@ visualize: $(BUILD_DIR)/visualizer
 
 tsan: $(BUILD_DIR)/tsan_pipeline
 	./$(BUILD_DIR)/tsan_pipeline 10000
+
+site: $(BUILD_DIR)/site_export
+	./$(BUILD_DIR)/site_export data/sample_replay.csv
 
 clean:
 	rm -rf $(BUILD_DIR)

@@ -19,6 +19,17 @@ public:
     std::uint64_t count() const { return count_; }
     std::uint64_t max() const { return max_; }
 
+    static constexpr std::size_t bucket_count() { return BucketCount; }
+    std::uint64_t bucket(std::size_t i) const { return buckets_[i]; }
+    static std::uint64_t bucket_upper_bound(std::size_t i) { return upper_bound_for_bucket(i); }
+
+    void merge(const PowerOfTwoHistogram& other) {
+        count_ += other.count_;
+        total_ += other.total_;
+        if (other.max_ > max_) max_ = other.max_;
+        for (std::size_t i = 0; i < BucketCount; ++i) buckets_[i] += other.buckets_[i];
+    }
+
     double mean() const {
         return count_ == 0 ? 0.0 : static_cast<double>(total_) / static_cast<double>(count_);
     }
