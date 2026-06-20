@@ -1,0 +1,80 @@
+{
+  "meta": {
+    "date": "2026-06-19",
+    "host": "Apple M4 · macOS 15.7.4 · Apple clang 17.0.0",
+    "baseline": "system libc malloc",
+    "generated_utc": "2026-06-19T00:00Z"
+  },
+  "headline": {
+    "speedup_slab": "4.5×",
+    "p999_ns": 167,
+    "frag_pct": 0.24,
+    "worstcase": "O(1)"
+  },
+  "tlsf": { "alpha": "8 B", "SL": 32, "FL": 25, "h": "16 B" },
+
+  "latency_tail": {
+    "pct": [50, 90, 99, 99.9],
+    "memalloc": [41, 41, 43, 167],
+    "system": [41, 125, 251, 1400],
+    "memalloc_max": 1700000,
+    "system_max": 7200000
+  },
+
+  "throughput": {
+    "workloads": ["Slab · fixed 64 B", "TLSF · variable", "HFT mixed"],
+    "memalloc": [98.7, 21.9, 38.6],
+    "system": [22.2, 17.9, 19.7],
+    "speedup": ["4.5×", "1.2×", "2.0×"],
+    "mixed": 38.6,
+    "mixed_speedup": "2.0×"
+  },
+
+  "latency_pctile": {
+    "rows": [
+      ["p50", "<41", "<41", "—"],
+      ["p90", "<41", "125", "—"],
+      ["p99", "43", "251", "5.8×"],
+      ["p99.9", "167", "1.4K", "8.2×"],
+      ["max", "1.7M", "7.2M", "4.2×"]
+    ]
+  },
+
+  "lat_size": {
+    "labels": ["16 B", "32 B", "64 B", "128 B", "256 B", "512 B", "1 KB", "4 KB", "16 KB", "64 KB"],
+    "bytes": [16, 32, 64, 128, 256, 512, 1024, 4096, 16384, 65536],
+    "memalloc": [13.0, 15.2, 13.4, 12.3, 14.3, 19.6, 29.2, 23.2, 29.4, 33.9],
+    "system": [27.0, 32.5, 39.0, 33.9, 77.5, 81.6, 31.5, 38.8, 42.6, 49.4]
+  },
+
+  "threads": {
+    "n": [1, 2, 4, 8],
+    "memalloc": [28.4, 62.8, 116.6, 187.2],
+    "system": [16.8, 31.5, 54.8, 103.6],
+    "ideal": [28.4, 56.8, 113.6, 227.2],
+    "scaling": "6.6×"
+  },
+
+  "frag": { "measured": 0.24, "target": 3.0, "bound": 3.1 },
+
+  "footprint": { "mb": 4.3, "cycles": 12000 },
+
+  "targets": [
+    { "met": true,  "name": "Worst-case time complexity", "goal": "O(1)",          "measured": "O(1) — flat across 16 B–64 KB" },
+    { "met": false, "name": "Throughput vs system malloc", "goal": "≥6× (vs glibc)", "measured": "1.2–4.5× (vs Apple libc)" },
+    { "met": true,  "name": "Memory fragmentation",        "goal": "<3%",           "measured": "0.24%" },
+    { "met": true,  "name": "Latency determinism (tail)",  "goal": "tight p99.9",   "measured": "p99.9 167 ns vs malloc 1.4K ns" },
+    { "met": true,  "name": "Hot-path kernel switches",    "goal": "0",             "measured": "0 (user-space arena)" },
+    { "met": true,  "name": "Hot-path lock contention",    "goal": "0",             "measured": "lock-free (TSan-clean)" }
+  ],
+
+  "report": [
+    ["Mixed throughput", "38.6 M ops/s", "Slab throughput", "98.7 M ops/s"],
+    ["TLSF throughput", "21.9 M ops/s", "Speedup vs malloc · mixed", "2.0×"],
+    ["p50 latency", "<41 ns", "p99 latency", "43 ns"],
+    ["p99.9 latency", "167 ns", "Tail vs malloc · p99.9", "8.2×"],
+    ["Fragmentation", "0.24%", "Resident footprint", "4.3 MB"],
+    ["Throughput · 1 thread", "28.4 M ops/s", "Throughput · 8 threads", "187.2 M ops/s"],
+    ["Scaling · 1 → 8 threads", "6.6×", "Events replayed", "1.2M"]
+  ]
+}
