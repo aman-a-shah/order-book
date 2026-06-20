@@ -1,202 +1,248 @@
-/* =============================================================================
-   Low-Latency Order Book — research note
-   Design system per QUANT_SHOWCASE_STYLE.md (§2 tokens, §6 charts, §11 print
-   copied verbatim; domain components authored on top).
-   ========================================================================== */
+/* ============================================================
+   Statistical Arbitrage — editorial research-paper system
+   Black ink · near-white paper · crimson accent · slate data hue
+   Fonts: Source Serif 4 (prose/headings) + JetBrains Mono (data)
+   ============================================================ */
 
 :root {
   /* paper / surfaces — true near-white, faint cool cast (never cream) */
   --paper:      oklch(0.989 0.0015 250);
-  --paper-2:    oklch(0.971 0.003 252);   /* figure / panel background */
-  --paper-3:    oklch(0.955 0.004 252);   /* row hover, in-sample shade */
+  --paper-2:    oklch(0.971 0.003 252);
+  --paper-3:    oklch(0.955 0.004 252);
 
   /* ink ramp */
-  --ink:        oklch(0.235 0.012 264);   /* headings / near-black     (16.2:1) */
-  --body:       oklch(0.330 0.012 264);   /* body text                 (11.8:1) */
-  --muted:      oklch(0.475 0.012 264);   /* captions / secondary      (6.5:1)  */
-  --faint:      oklch(0.550 0.012 264);   /* axis ticks                (4.7:1)  */
+  --ink:        oklch(0.235 0.012 264);  /* headings / near-black            */
+  --body:       oklch(0.330 0.012 264);  /* body text — ~11:1 on paper       */
+  --muted:      oklch(0.475 0.012 264);  /* captions / secondary — ~5.6:1    */
+  --faint:      oklch(0.550 0.012 264);  /* axis ticks — AA (4.7:1)          */
 
-  --rule:       oklch(0.885 0.004 258);   /* hairlines                 */
-  --rule-soft:  oklch(0.930 0.003 258);   /* lighter hairlines / grid  */
+  --rule:       oklch(0.885 0.004 258);  /* hairlines                        */
+  --rule-soft:  oklch(0.930 0.003 258);
 
-  /* accent — crimson (the ONLY brand color) */
-  --accent:     oklch(0.505 0.182 21);    /* lines, dots, markers      (6.3:1)  */
-  --accent-ink: oklch(0.430 0.176 21);    /* crimson text/links        (8.6:1)  */
-  --accent-12:  oklch(0.505 0.182 21 / 0.12);  /* fills */
-  --accent-22:  oklch(0.505 0.182 21 / 0.22);  /* selection */
+  /* accent — crimson */
+  --accent:     oklch(0.505 0.182 21);
+  --accent-ink: oklch(0.430 0.176 21);   /* crimson text on paper — AA       */
+  --accent-12:  oklch(0.505 0.182 21 / 0.12);
+  --accent-22:  oklch(0.505 0.182 21 / 0.22);
 
-  /* second data series — muted slate-blue (charts only) */
-  --data2:      oklch(0.520 0.085 248);   /* second line / bars        (5.3:1)  */
+  /* second data series — muted slate-blue */
+  --data2:      oklch(0.520 0.085 248);
   --data2-12:   oklch(0.520 0.085 248 / 0.14);
 
-  /* metrics */
-  --maxw: 50rem;   /* prose measure ≈ 70ch */
-  --figw: 64rem;   /* figures/tables break wider */
+  --maxw: 50rem;          /* prose measure ~70ch                            */
+  --figw: 64rem;          /* figures break wider                            */
   --gap: clamp(1rem, 2.5vw, 2rem);
 
   --serif: "Source Serif 4", Georgia, "Times New Roman", serif;
   --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
-  --ease: cubic-bezier(0.22, 1, 0.36, 1);  /* ease-out-quint */
+
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);  /* ease-out-quint                */
+
+  --z-progress: 100;
 }
 
-/* ----------------------------------------------------------------- reset --- */
+/* ---------- reset ---------- */
 *, *::before, *::after { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
 body {
   margin: 0;
   background: var(--paper);
   color: var(--body);
-  font: 380 clamp(1.02rem, 0.97rem + 0.3vw, 1.18rem)/1.62 var(--serif);
+  font-family: var(--serif);
   font-optical-sizing: auto;
-  -webkit-font-smoothing: antialiased;
+  font-size: clamp(1.02rem, 0.97rem + 0.3vw, 1.18rem);
+  line-height: 1.62;
+  font-weight: 380;
   text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
 }
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+}
+
+h1, h2, h3 { color: var(--ink); font-weight: 600; line-height: 1.1; text-wrap: balance; }
+p { text-wrap: pretty; }
+a { color: var(--accent-ink); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+a:hover { color: var(--accent); }
+strong { font-weight: 640; color: var(--ink); }
+em { font-style: italic; }
+.mono { font-family: var(--mono); font-feature-settings: "tnum" 1; letter-spacing: -0.01em; }
+
 ::selection { background: var(--accent-22); }
 
-/* mono everywhere numbers live */
-.mono, .num {
-  font-family: var(--mono);
-  font-feature-settings: "tnum" 1;
-  letter-spacing: -0.01em;
+.wrap { width: min(100% - 2.5rem, var(--figw)); margin-inline: auto; }
+
+/* prose blocks keep a narrow measure; figures/tables span full --figw */
+.prose > p,
+.prose > h2,
+.prose > h3,
+.prose .section-head,
+.prose > ul,
+.prose .equation,
+.prose .frozen-note,
+.prose .repro,
+.prose .fine { max-width: var(--maxw); margin-inline: auto; }
+
+/* ---------- reading progress ---------- */
+.progress {
+  position: fixed; inset: 0 0 auto 0; height: 2px;
+  background: transparent; z-index: var(--z-progress);
+}
+.progress span {
+  display: block; height: 100%; width: 0;
+  background: var(--accent); transform-origin: left;
 }
 
-/* ---------------------------------------------------------------- layout --- */
-.wrap { width: min(100% - 2.5rem, var(--figw)); margin-inline: auto; }
-.prose > p, .prose > h2, .prose > h3, .prose .section-head,
-.prose > ul, .prose > ol, .prose .equation, .prose > .note {
-  max-width: var(--maxw); margin-inline: auto;
+/* ---------- masthead ---------- */
+.masthead {
+  padding: clamp(3rem, 8vw, 7rem) 0 clamp(2rem, 5vw, 3.5rem);
+  border-bottom: 1px solid var(--rule);
 }
-main { display: block; }
+.dateline {
+  color: var(--muted); font-size: 0.82rem; letter-spacing: 0.01em;
+  margin: 0 0 1.4rem; max-width: var(--maxw); margin-inline: auto;
+}
+.dateline .mono { color: var(--accent-ink); }
+.masthead h1 {
+  font-size: clamp(2.9rem, 1.8rem + 5.4vw, 5.6rem);
+  letter-spacing: -0.025em; font-weight: 600;
+  margin: 0 auto 1.1rem; max-width: var(--maxw);
+}
+.lede {
+  font-size: clamp(1.18rem, 1.06rem + 0.6vw, 1.5rem);
+  line-height: 1.5; color: var(--ink); font-weight: 360;
+  margin: 0 auto; max-width: var(--maxw);
+}
+
+/* abstract stat strip — definition list, not metric cards */
+.abstract-stats {
+  display: grid; grid-template-columns: repeat(4, 1fr);
+  gap: 0; margin: clamp(2rem, 4vw, 3rem) auto 0; max-width: var(--maxw);
+  border-block: 1px solid var(--rule);
+}
+.abstract-stats > div {
+  padding: 1rem 1.1rem 1.05rem;
+  border-left: 1px solid var(--rule-soft);
+}
+.abstract-stats > div:first-child { border-left: 0; padding-left: 0; }
+.abstract-stats dt { color: var(--muted); font-size: 0.74rem; margin-bottom: 0.45rem; line-height: 1.3; }
+.abstract-stats dd { margin: 0; font-size: clamp(1.2rem, 1rem + 0.9vw, 1.7rem); color: var(--ink); font-weight: 500; }
+
+.hero-spark { margin: clamp(2.2rem, 5vw, 3.4rem) auto 0; max-width: var(--figw); }
+.hero-spark .chart { height: clamp(150px, 26vw, 230px); }
+
+/* table of contents */
+.toc {
+  display: flex; flex-wrap: wrap; gap: 0.4rem 1.8rem;
+  margin: clamp(2.2rem, 5vw, 3.2rem) auto 0; max-width: var(--maxw);
+  padding-top: 1.4rem; border-top: 1px solid var(--rule);
+}
+.toc a { color: var(--muted); text-decoration: none; font-size: 0.95rem; transition: color 0.2s var(--ease); }
+.toc a .mono { color: var(--accent-ink); font-size: 0.78rem; margin-right: 0.4rem; }
+.toc a:hover { color: var(--ink); }
+
+/* ---------- sections ---------- */
+main { padding-bottom: 5rem; }
 section { padding-block: clamp(2.6rem, 6vw, 4.6rem); }
 section + section { border-top: 1px solid var(--rule); }
 
-/* ------------------------------------------------------------ typography --- */
-h1, h2, h3 { color: var(--ink); text-wrap: balance; margin: 0; }
-p { text-wrap: pretty; }
-h1 {
-  font-weight: 600;
-  font-size: clamp(2.9rem, 1.8rem + 5.4vw, 5.2rem);
-  letter-spacing: -0.025em;
-  line-height: 1.02;
-}
-.lede {
-  font-weight: 360;
-  font-size: clamp(1.18rem, 1.06rem + 0.6vw, 1.5rem);
-  line-height: 1.5;
-  color: var(--ink);
-}
-h2 {
-  font-weight: 600;
-  font-size: clamp(1.7rem, 1.3rem + 1.6vw, 2.4rem);
-  letter-spacing: -0.018em;
-  line-height: 1.08;
-}
-h3 { font-weight: 600; font-size: 1.18rem; color: var(--ink); margin-top: 2rem; }
-strong { font-weight: 640; color: var(--ink); }
-a { color: var(--accent-ink); text-underline-offset: 0.15em; text-decoration-thickness: 1px; }
-.prose p { margin: 0 auto 1.05rem; }
-.prose .num-em { color: var(--accent-ink); font-family: var(--mono); font-feature-settings: "tnum" 1; }
-
-ul, ol { color: var(--body); padding-left: 1.2rem; }
-li { margin-bottom: 0.4rem; }
-li::marker { color: var(--faint); }
-
-/* ---------------------------------------------------------- progress bar --- */
-.progress { position: fixed; inset: 0 0 auto 0; height: 2px; z-index: 60; pointer-events: none; }
-.progress span {
-  display: block; height: 100%; background: var(--accent);
-  transform: scaleX(0); transform-origin: 0 50%;
-}
-
-/* -------------------------------------------------------------- masthead --- */
-.masthead { padding-top: clamp(2.2rem, 5vw, 4rem); padding-bottom: clamp(1.4rem, 3vw, 2.4rem); }
-.dateline {
-  font-family: var(--mono); font-size: 0.78rem; letter-spacing: 0.02em;
-  color: var(--muted); text-transform: uppercase;
-  display: flex; flex-wrap: wrap; gap: 0.55rem 0.9rem; align-items: baseline;
-  margin-bottom: clamp(1.2rem, 3vw, 2rem);
-}
-.dateline .lead { color: var(--accent-ink); }
-.dateline .sep { color: var(--rule); }
-.masthead h1 { margin-bottom: 1.3rem; max-width: 22ch; }
-.masthead .lede { max-width: 58ch; margin-bottom: 0; }
-.byline {
-  font-family: var(--mono); font-size: 0.78rem; color: var(--muted);
-  margin-top: 1.4rem; display: flex; flex-wrap: wrap; gap: 0.4rem 1.2rem;
-}
-.byline b { color: var(--ink); font-weight: 500; }
-
-/* --------------------------------------------------- abstract-stats strip --- */
-.abstract-stats {
-  display: grid; grid-template-columns: repeat(4, 1fr);
-  border-block: 1px solid var(--rule);
-  margin-top: clamp(1.8rem, 4vw, 2.6rem);
-}
-.abstract-stats > div { padding: 1rem 1.1rem; border-left: 1px solid var(--rule-soft); }
-.abstract-stats > div:first-child { border-left: 0; padding-left: 0; }
-.abstract-stats dt {
-  color: var(--muted); font-size: 0.74rem; margin: 0 0 0.5rem;
-  font-family: var(--mono); letter-spacing: 0.01em;
-}
-.abstract-stats dd {
-  margin: 0;
-  font: 500 clamp(1.2rem, 1rem + 0.9vw, 1.7rem) var(--mono);
-  font-feature-settings: "tnum" 1; letter-spacing: -0.02em; color: var(--ink);
-}
-.abstract-stats .unit { color: var(--muted); font-size: 0.6em; margin-left: 0.15em; }
-.abstract-stats .sub { display: block; color: var(--muted); font-family: var(--serif); font-size: 0.74rem; margin-top: 0.35rem; }
-
-/* -------------------------------------------------------------------- toc --- */
-.toc {
-  margin-top: clamp(1.8rem, 4vw, 2.6rem);
-  border-top: 1px solid var(--rule); padding-top: 1.2rem;
-  display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.5rem 1.2rem;
-}
-.toc a {
-  display: flex; gap: 0.6rem; align-items: baseline; text-decoration: none;
-  color: var(--body); font-size: 0.9rem; padding-bottom: 0.2rem;
-}
-.toc a .n { font-family: var(--mono); font-size: 0.78rem; color: var(--accent-ink); }
-.toc a:hover { color: var(--ink); }
-
-/* -------------------------------------------------------- section heading --- */
-.section-head {
-  display: flex; gap: 1rem; align-items: baseline; margin-bottom: 1.4rem;
-}
+.section-head { display: flex; align-items: baseline; gap: 1rem; margin-bottom: 1.6rem; }
 .section-no {
-  font-family: var(--mono); color: var(--accent-ink); font-size: 0.95rem;
-  font-weight: 500; flex: none; letter-spacing: 0; padding-top: 0.1rem;
+  color: var(--accent-ink); font-size: 0.95rem; font-weight: 600;
+  padding-top: 0.2rem; flex: none;
 }
-.section-head h2 { flex: 1; }
+.section-head h2 {
+  font-size: clamp(1.7rem, 1.3rem + 1.6vw, 2.5rem);
+  letter-spacing: -0.018em; margin: 0;
+}
+.prose h3 {
+  font-size: 1.18rem; margin: 2.4rem 0 0.6rem; font-weight: 600;
+  max-width: var(--maxw); margin-inline: auto;
+}
+.prose p { margin: 0 auto 1.15rem; }
+.prose ul { margin: 0 auto 1.3rem; padding-left: 1.2rem; }
+.prose li { margin-bottom: 0.4rem; }
 
-/* ----------------------------------------------------------------- figure --- */
-figure { margin: clamp(1.6rem, 3.5vw, 2.6rem) auto; width: 100%; }
+/* equations */
+.equation {
+  margin: 1.5rem auto !important; text-align: center;
+  font-size: 1.05rem; overflow-x: auto; overflow-y: hidden;
+  padding-block: 0.3rem;
+}
+.katex { color: var(--ink); }
+.katex-display { margin: 0 !important; }
+/* `p { text-wrap: pretty }` is inherited into KaTeX's nested span tree and hangs
+   Chrome's line-break optimizer during the headless print pass — opt math out. */
+.equation, .katex, .katex * { text-wrap: nowrap; }
+
+/* pipeline */
+.pipeline-section .pipeline {
+  display: flex; align-items: stretch; gap: 0.5rem; flex-wrap: wrap;
+  margin: 1.8rem auto; max-width: var(--figw);
+}
+.pipeline .stage {
+  flex: 1 1 0; min-width: 150px;
+  border: 1px solid var(--rule); background: var(--paper);
+  padding: 0.95rem 1rem 1.05rem; display: flex; flex-direction: column; gap: 0.3rem;
+}
+.pipeline .stage .num { color: var(--accent-ink); font-size: 0.74rem; }
+.pipeline .stage .lbl { color: var(--ink); font-weight: 600; font-size: 1rem; line-height: 1.2; }
+.pipeline .stage .sub { color: var(--muted); font-size: 0.82rem; }
+.pipeline .accent-stage { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent-12); }
+.pipeline .flow { align-self: center; color: var(--faint); font-family: var(--mono); flex: none; }
+.frozen-note {
+  font-size: 0.95rem; color: var(--muted);
+  border-left: 0; padding: 0.9rem 0 0;
+  border-top: 1px dashed var(--rule); margin-top: 0.5rem !important;
+}
+.frozen-note .mono { color: var(--accent-ink); }
+
+/* ---------- figures ---------- */
+figure { margin: clamp(1.6rem, 4vw, 2.6rem) auto; max-width: var(--figw); }
+figcaption {
+  font-size: 0.86rem; line-height: 1.5; color: var(--muted);
+  margin-top: 0.85rem; max-width: 54ch;
+}
+.fignum { color: var(--accent-ink); font-family: var(--mono); font-size: 0.78rem; margin-right: 0.3rem; }
 .chart {
-  width: 100%; height: 300px;
-  background: var(--paper-2); border: 1px solid var(--rule); border-radius: 2px;
+  width: 100%; background: var(--paper-2);
+  border: 1px solid var(--rule); border-radius: 2px;
+  overflow: hidden;
 }
 .chart svg { display: block; width: 100%; height: 100%; }
-figcaption { font-size: 0.86rem; color: var(--muted); margin-top: 0.85rem; max-width: 60ch; line-height: 1.5; }
-.fignum { color: var(--accent-ink); font-family: var(--mono); font-size: 0.78rem; margin-right: 0.5rem; letter-spacing: 0; }
+#fig-depth, #fig-latency { height: clamp(280px, 42vw, 400px); }
+#fig-tail, #fig-throughput, #fig-scaling { height: clamp(240px, 38vw, 360px); }
+#fig-msg { height: clamp(150px, 24vw, 220px); }
 
-/* chart primitives (§6) */
-.c-grid { stroke: var(--rule-soft); } .c-axis { stroke: var(--rule); }
-.c-tick { fill: var(--faint); font: 10px var(--mono); }
-.c-tick-x { text-anchor: middle; } .c-tick-y { text-anchor: end; }
+/* chart internals (set by JS, styled here) */
+.c-grid { stroke: var(--rule-soft); stroke-width: 1; }
+.c-axis { stroke: var(--rule); stroke-width: 1; }
+.c-tick { fill: var(--faint); font-family: var(--mono); font-size: 10px; }
+.c-tick-x { text-anchor: middle; }
+.c-tick-y { text-anchor: end; }
+.c-label { fill: var(--muted); font-family: var(--mono); font-size: 10.5px; }
 .c-line { fill: none; stroke: var(--ink); stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
-.c-line-accent { stroke: var(--accent); } .c-line-data2 { stroke: var(--data2); } .c-line-dash { stroke-dasharray: 4 4; }
-.c-area-accent { fill: var(--accent-12); } .c-area-data2 { fill: var(--data2-12); }
-.c-band { stroke: var(--faint); stroke-dasharray: 3 4; fill: none; }
-.c-dot { fill: var(--ink); } .c-dot-accent { fill: var(--accent); } .c-dot-data2 { fill: var(--data2); }
-.c-bar { fill: var(--data2); } .c-bar-accent { fill: var(--accent); }
-.c-marker { stroke: var(--accent); stroke-width: 1.4; } .c-marker-label { fill: var(--accent-ink); font: 10px var(--mono); }
-.c-legend { font: 11px var(--mono); fill: var(--muted); }
-.c-label { fill: var(--muted); font: 10px var(--mono); }
-.c-val { fill: var(--ink); font: 10px var(--mono); font-feature-settings: "tnum" 1; }
+.c-line-accent { stroke: var(--accent); }
+.c-line-data2 { stroke: var(--data2); }
+.c-line-dash { stroke-dasharray: 4 4; }
+.c-area-accent { fill: var(--accent-12); stroke: none; }
+.c-band { stroke: var(--faint); stroke-width: 1; stroke-dasharray: 3 4; fill: none; }
+.c-band-accent { stroke: var(--accent); stroke-width: 1; stroke-dasharray: 3 4; }
+.c-zline { stroke: var(--rule); stroke-width: 1; }
+.c-train { fill: var(--paper-3); }
+.c-dot { fill: var(--ink); }
+.c-dot-accent { fill: var(--accent); }
+.c-bar { fill: var(--data2); }
+.c-marker { stroke: var(--accent); stroke-width: 1.4; }
+.c-marker-label { fill: var(--accent-ink); font-family: var(--mono); font-size: 10px; }
+.c-legend { fill: var(--body); font-family: var(--mono); font-size: 11px; }
+/* order-book renderer additions (second-series fills, bars, value labels) */
+.c-area-data2 { fill: var(--data2-12); stroke: none; }
+.c-dot-data2 { fill: var(--data2); }
+.c-bar-accent { fill: var(--accent); }
+.c-val { fill: var(--ink); font-family: var(--mono); font-size: 10px; }
 .c-val-accent { fill: var(--accent-ink); }
-.c-hero-line { fill: none; stroke: var(--accent); stroke-width: 1.8; stroke-linejoin: round; stroke-linecap: round; }
-
-/* byte-layout field map (binary protocol) */
+/* 40-byte message field map */
 .bytemap rect { fill: var(--paper); stroke: var(--rule); }
 .bytemap .field-id { fill: var(--accent-12); stroke: var(--accent); }
 .bytemap .field-magic { fill: var(--data2-12); stroke: var(--data2); }
@@ -204,200 +250,215 @@ figcaption { font-size: 0.86rem; color: var(--muted); margin-top: 0.85rem; max-w
 .bytemap .flabel { fill: var(--ink); font: 600 11px var(--mono); text-anchor: middle; }
 .bytemap .foff { fill: var(--faint); font: 9px var(--mono); text-anchor: middle; }
 
-/* hero spark wrapper */
-.hero-spark { margin-top: clamp(1.6rem, 4vw, 2.4rem); }
-.hero-spark .chart { height: 200px; background: transparent; border: 0; }
-
-/* ------------------------------------------------------------- pipeline --- */
-.pipeline {
-  display: flex; align-items: stretch; gap: 0; margin: clamp(1.4rem, 3vw, 2rem) auto;
-  width: 100%;
-}
-.pipeline .stage {
-  flex: 1 1 0; min-width: 0; padding: 0.95rem 1rem;
-  border: 1px solid var(--rule); border-radius: 2px; background: var(--paper-2);
-}
-.pipeline .stage.hot { box-shadow: inset 0 0 0 1px var(--accent-12); border-color: var(--accent); }
-.pipeline .stage .sn { font-family: var(--mono); font-size: 0.72rem; color: var(--accent-ink); }
-.pipeline .stage .sl { display: block; color: var(--ink); font-weight: 600; font-size: 0.96rem; margin-top: 0.25rem; }
-.pipeline .stage .ss { display: block; color: var(--muted); font-size: 0.78rem; margin-top: 0.2rem; font-family: var(--mono); }
-.pipeline .flow {
-  flex: none; align-self: center; padding: 0 0.55rem; color: var(--faint);
-  font-family: var(--mono); font-size: 1.1rem;
-}
-
-/* -------------------------------------------------------- parameter grid --- */
-.param-grid {
-  display: grid; grid-template-columns: repeat(4, 1fr);
-  border-top: 1px solid var(--rule); border-left: 1px solid var(--rule-soft);
-  margin: clamp(1.4rem, 3vw, 2rem) auto;
-}
-.param-grid > div {
-  padding: 0.95rem 1rem; border-bottom: 1px solid var(--rule-soft); border-right: 1px solid var(--rule-soft);
-}
-.param-grid .k { font-family: var(--serif); font-style: italic; color: var(--accent-ink); font-size: 1.02rem; }
-.param-grid .v { display: block; font-family: var(--mono); font-feature-settings: "tnum" 1; color: var(--ink); font-size: 1.15rem; margin-top: 0.3rem; letter-spacing: -0.01em; }
-.param-grid .d { display: block; color: var(--muted); font-size: 0.74rem; margin-top: 0.3rem; line-height: 1.4; }
-
-/* --------------------------------------------------------------- tables --- */
-.table-figure { margin: clamp(1.6rem, 3.5vw, 2.6rem) auto; }
+/* ---------- data tables ---------- */
 .data-table { width: 100%; overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
 thead th {
-  text-align: right; font-family: var(--mono); font-weight: 500; font-size: 0.74rem;
-  color: var(--muted); padding: 0 0.7rem 0.55rem; border-bottom: 1px solid var(--ink);
-  letter-spacing: 0.01em; white-space: nowrap; text-transform: uppercase;
+  text-align: right; font-family: var(--mono); font-weight: 500;
+  font-size: 0.74rem; color: var(--muted); text-transform: none;
+  padding: 0 0.85rem 0.6rem; border-bottom: 1px solid var(--ink);
+  white-space: nowrap;
 }
 thead th:first-child, tbody td:first-child { text-align: left; }
 tbody td {
-  text-align: right; padding: 0.5rem 0.7rem; border-bottom: 1px solid var(--rule-soft);
-  font-family: var(--mono); font-feature-settings: "tnum" 1; color: var(--ink); white-space: nowrap;
+  padding: 0.5rem 0.85rem; border-bottom: 1px solid var(--rule-soft);
+  text-align: right; color: var(--body); white-space: nowrap;
 }
-tbody td.t { font-family: var(--serif); color: var(--body); text-align: left; }
+tbody td.num { font-family: var(--mono); font-feature-settings: "tnum" 1; }
 tbody tr:hover { background: var(--paper-3); }
-.row-pass td:first-child::before,
+tbody td .name { color: var(--ink); font-family: var(--mono); font-size: 0.85rem; }
+tbody td.desc { text-align: left; color: var(--body); white-space: nowrap; }
+.row-pass td:first-child::before {
+  content: ""; display: inline-block; width: 7px; height: 7px;
+  background: var(--accent); border-radius: 50%; margin-right: 0.55rem; vertical-align: middle;
+}
 .row-fail td:first-child::before {
-  content: ""; display: inline-block; width: 0.55rem; height: 0.55rem; border-radius: 50%;
-  margin-right: 0.5rem; vertical-align: 0.02em;
+  content: ""; display: inline-block; width: 7px; height: 7px;
+  border: 1px solid var(--faint); border-radius: 50%; margin-right: 0.55rem; vertical-align: middle;
 }
-.row-pass td:first-child::before { background: var(--accent); }
-.row-fail td:first-child::before { background: transparent; box-shadow: inset 0 0 0 1.4px var(--faint); }
-td.bid { color: var(--accent-ink); } td.ask { color: var(--data2); }
+.tag-pair { color: var(--accent-ink); }
+.swatch { display: inline-block; width: 9px; height: 9px; border-radius: 50%; vertical-align: middle; margin: 0 0.15rem 0 0.4rem; }
+.swatch-pair { background: var(--accent); }
+.swatch-noise { border: 1px solid var(--faint); }
 
-/* ------------------------------------------------------ throughput callout --- */
+/* param grids */
+.param-grid {
+  display: grid; grid-template-columns: repeat(4, 1fr);
+  border: 1px solid var(--rule); margin: 1.6rem auto; max-width: var(--maxw);
+}
+.param-grid > div { padding: 1rem 1.1rem; border-left: 1px solid var(--rule-soft); display: flex; flex-direction: column; gap: 0.25rem; }
+.param-grid > div:first-child { border-left: 0; }
+.param-grid .pk { color: var(--accent-ink); font-family: var(--serif); font-style: italic; font-size: 1.1rem; }
+.diag-grid .pk { font-style: normal; font-size: 0.82rem; }
+.param-grid .pv { color: var(--ink); font-size: 1.2rem; font-weight: 500; }
+.param-grid .pd { color: var(--muted); font-size: 0.74rem; }
+
+/* friction list */
+.friction-list { list-style: none; padding-left: 0 !important; }
+.friction-list li { padding-left: 1.4rem; position: relative; }
+.friction-list li::before { content: "—"; position: absolute; left: 0; color: var(--accent-ink); font-family: var(--mono); }
+.friction-list .mono { color: var(--ink); }
+
+/* throughput callout */
 .throughput {
-  display: grid; grid-template-columns: auto 1fr; gap: clamp(1.2rem, 3vw, 2.4rem); align-items: center;
-  border-top: 1px solid var(--rule); padding-top: 1.4rem; margin: clamp(1.6rem, 3.5vw, 2.4rem) auto;
-  max-width: var(--maxw);
+  display: flex; align-items: baseline; gap: clamp(1rem, 3vw, 2rem);
+  flex-wrap: wrap; margin: 2rem auto 0; max-width: var(--maxw);
+  padding-top: 1.6rem; border-top: 1px solid var(--rule);
 }
-.throughput .big {
-  font-family: var(--mono); font-feature-settings: "tnum" 1; font-weight: 500;
-  font-size: clamp(2.4rem, 1.6rem + 3.6vw, 4rem); color: var(--ink); line-height: 0.95; letter-spacing: -0.03em;
-}
-.throughput .big .unit { font-size: 0.32em; color: var(--muted); display: block; margin-top: 0.4rem; letter-spacing: 0; }
-.throughput p { margin: 0; color: var(--muted); font-size: 0.95rem; }
+.throughput .big { font-size: clamp(2.4rem, 1.6rem + 3.6vw, 4rem); color: var(--ink); font-weight: 500; letter-spacing: -0.02em; line-height: 1; flex: none; }
+.throughput p { margin: 0; color: var(--muted); font-size: 0.95rem; max-width: 32ch; }
 
-/* note / aside */
-.note {
-  border-top: 1px solid var(--rule-soft); padding-top: 0.9rem; margin: 1.4rem auto;
-  color: var(--muted); font-size: 0.9rem;
-}
-.note b { color: var(--ink); }
-
-/* equations */
-.equation { margin: clamp(1.2rem, 3vw, 1.8rem) auto; overflow-x: auto; }
-.katex { color: var(--ink); }
-.katex-display { margin: 0.4rem 0; }
-/* CRITICAL: `p { text-wrap: pretty }` is inherited into KaTeX's deeply nested
-   span tree and sends Chrome's line-break optimizer into a hang during the
-   print layout pass (headless --print-to-pdf never captures). Math manages its
-   own breaks, so opt the whole KaTeX subtree out of pretty/balance wrapping. */
-.equation, .katex, .katex * { text-wrap: nowrap; }
-
-/* ------------------------------------------------------------- colophon --- */
-.colophon { padding-block: clamp(2.4rem, 5vw, 3.6rem); }
-.colophon h2 { font-size: clamp(1.5rem, 1.2rem + 1vw, 1.9rem); margin-bottom: 1rem; }
-.colophon .cols { display: grid; grid-template-columns: 1.2fr 1fr; gap: clamp(1.4rem, 4vw, 3rem); align-items: start; }
-.colophon p { color: var(--body); margin: 0 0 0.9rem; max-width: 46ch; }
-.repro {
+/* colophon */
+.colophon .repro {
   background: var(--ink); color: var(--paper); border-radius: 3px;
-  padding: 1rem 1.1rem; font: 0.82rem/1.7 var(--mono); overflow-x: auto; margin: 0;
+  padding: 0.9rem 1.1rem; font-size: 0.88rem; overflow-x: auto; margin: 1.4rem auto;
 }
-.repro .c { color: oklch(0.72 0.01 264); }
-.repro .a { color: oklch(0.78 0.12 21); }
-.site-footer {
-  border-top: 1px solid var(--rule); padding: 1.4rem 0 2.4rem;
-  font-family: var(--mono); font-size: 0.76rem; color: var(--muted);
-  display: flex; flex-wrap: wrap; gap: 0.4rem 1.4rem;
-}
+.colophon .repro code { color: var(--paper); }
+.fine { font-size: 0.85rem; color: var(--muted); }
 
-/* ----------------------------------------------------------------- motion --- */
+/* footer */
+.site-footer { border-top: 1px solid var(--rule); padding: 2rem 0; }
+.site-footer .wrap { display: flex; justify-content: space-between; align-items: center; }
+.site-footer .mono { color: var(--muted); font-size: 0.85rem; }
+.site-footer a { color: var(--muted); text-decoration: none; font-size: 0.85rem; }
+.site-footer a:hover { color: var(--accent); }
+
+/* ---------- motion (progressive enhancement; content visible without JS) ---------- */
 .js .reveal { opacity: 0; transform: translateY(14px); }
 .js .reveal.in { opacity: 1; transform: none; transition: opacity 0.7s var(--ease), transform 0.7s var(--ease); }
-.js .c-hero-line.draw { stroke-dasharray: var(--len); stroke-dashoffset: var(--len); }
-.js .c-hero-line.draw.go { stroke-dashoffset: 0; transition: stroke-dashoffset 1.1s var(--ease); }
+.js .c-line.draw { stroke-dasharray: var(--len); stroke-dashoffset: var(--len); }
+.js .c-line.draw.in { stroke-dashoffset: 0; transition: stroke-dashoffset 1.1s var(--ease); }
 
 @media (prefers-reduced-motion: reduce) {
   .js .reveal, .js .reveal.in { opacity: 1; transform: none; transition: none; }
-  .js .c-hero-line.draw { stroke-dasharray: none !important; stroke-dashoffset: 0 !important; }
+  .js .c-line.draw, .js .c-line.draw.in { stroke-dasharray: none; stroke-dashoffset: 0; transition: none; }
   .progress span { display: none; }
-  html { scroll-behavior: auto; }
 }
 
-/* ------------------------------------------------------------ responsive --- */
-@media (max-width: 760px) {
-  .abstract-stats { grid-template-columns: repeat(2, 1fr); }
+/* ---------- responsive ---------- */
+@media (max-width: 720px) {
+  .abstract-stats { grid-template-columns: 1fr 1fr; }
   .abstract-stats > div:nth-child(3) { border-left: 0; padding-left: 0; }
   .abstract-stats > div:nth-child(odd) { border-left: 0; padding-left: 0; }
-  .param-grid { grid-template-columns: repeat(2, 1fr); }
-  .toc { grid-template-columns: repeat(2, 1fr); }
-  .pipeline { flex-direction: column; }
-  .pipeline .flow { transform: rotate(90deg); padding: 0.3rem 0; }
-  .colophon .cols { grid-template-columns: 1fr; }
-  .throughput { grid-template-columns: 1fr; }
+  .abstract-stats > div:nth-child(even) { border-left: 1px solid var(--rule-soft); }
+  .param-grid { grid-template-columns: 1fr 1fr; }
+  .param-grid > div:nth-child(odd) { border-left: 0; }
+  .param-grid > div:nth-child(even) { border-left: 1px solid var(--rule-soft); }
+  .pipeline .flow { display: none; }
+  .pipeline .stage { flex-basis: 100%; }
+}
+@media (max-width: 460px) {
+  .abstract-stats { grid-template-columns: 1fr; }
+  .abstract-stats > div { border-left: 0 !important; padding-left: 0 !important; border-top: 1px solid var(--rule-soft); }
+  .abstract-stats > div:first-child { border-top: 0; }
+  .section-head { gap: 0.6rem; }
 }
 
-/* ============================================================ PRINT (§11) === */
-@page { size: Letter; margin: 14mm 15mm 15mm; }
-
+/* ============================================================
+   PRINT / PDF  — the canonical output. Generated via Chrome
+   --headless --print-to-pdf (see site/build_pdf.sh). The page
+   content width (~7in) is below 720px, so we re-assert the
+   wide-layout grids that the mobile query would otherwise fold.
+   ============================================================ */
+@page {
+  size: Letter;
+  margin: 15mm 16mm 16mm;
+}
 @media print {
-  /* 1. PRESERVE COLOR */
+  /* preserve every fill/stroke — paper tint, crimson, slate bars */
   *, *::before, *::after { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 
-  /* 2. KILL MOTION & INTERACTIVE CHROME */
-  .js .reveal, .js .reveal.in { opacity: 1 !important; transform: none !important; transition: none !important; }
-  .js .c-hero-line.draw { stroke-dasharray: none !important; stroke-dashoffset: 0 !important; }
-  .progress, .site-footer-skip { display: none !important; }
-  a { color: var(--ink); text-decoration: none; }
   html { scroll-behavior: auto; }
-
-  /* 3. RE-ASSERT WIDE LAYOUT (content box < 720px would fold the grids) */
+  body { background: #fff; font-size: 10pt; line-height: 1.48; }
   .wrap { width: 100%; }
-  .abstract-stats, .param-grid { grid-template-columns: repeat(4, 1fr); }
-  .abstract-stats > div:nth-child(odd) { border-left: 1px solid var(--rule-soft); padding-left: 1.1rem; }
-  .abstract-stats > div:first-child { border-left: 0; padding-left: 0; }
-  .toc { grid-template-columns: repeat(5, 1fr); }
-  .pipeline { flex-direction: row; flex-wrap: nowrap; }
-  .pipeline .stage { flex: 1 1 0; min-width: 0; }
-  .pipeline .flow { display: block; transform: none; }
-  .colophon .cols { grid-template-columns: 1.2fr 1fr; }
-  .throughput { grid-template-columns: auto 1fr; }
 
-  /* 4. PAGINATION — keep figures/equations/callouts whole, let tables flow */
-  figure:not(.table-figure), .param-grid, .pipeline, .throughput,
-  .equation, .repro, .hero-spark { break-inside: avoid; }
-  tr { break-inside: avoid; } thead { display: table-header-group; }
-  .table-figure { break-inside: auto; } .table-figure figcaption { break-before: avoid; }
-  h1, h2, h3, .section-head { break-after: avoid; } .section-head + p, .section-head + .equation { break-before: avoid; }
+  /* drop interactive chrome */
+  .progress, .site-footer { display: none !important; }
+  a { color: var(--ink); text-decoration: none; }
+  .toc a .mono, .section-no, .fignum, .dateline .mono { color: var(--accent-ink); }
+
+  /* motion never gates printed content */
+  .js .reveal, .js .reveal.in { opacity: 1 !important; transform: none !important; transition: none !important; }
+  .js .c-line.draw, .js .c-line.draw.in { stroke-dasharray: none !important; stroke-dashoffset: 0 !important; }
+
+  /* tighten the document for paper — pack content so figures don't strand
+     half-empty pages when they hit break-inside: avoid */
+  .masthead { padding: 0 0 1rem; border-bottom: 1px solid var(--rule); }
+  .masthead h1 { font-size: 2.7rem; margin-bottom: 0.6rem; }
+  .dateline { margin-bottom: 0.7rem; }
+  .lede { font-size: 1.06rem; line-height: 1.45; }
+  .abstract-stats { margin-top: 1.1rem; }
+  .abstract-stats > div { padding-block: 0.7rem; }
+  .hero-spark { margin: 1.1rem auto 0; }
+  .toc { margin-top: 1.1rem; padding-top: 0.9rem; }
+  section { padding-block: 1.05rem; }
+  .section-head { margin-bottom: 1rem; }
+  .prose p { margin-bottom: 0.7rem; }
+  .prose h3 { margin: 1.1rem 0 0.4rem; }
+  .prose ul { margin-bottom: 0.8rem; }
+  figure { margin: 0.9rem auto; }
+  figcaption { margin-top: 0.5rem; }
+  .equation { margin: 0.9rem auto !important; }
+  .param-grid { margin: 1rem auto; }
+  .param-grid > div { padding: 0.7rem 0.9rem; }
+  .throughput { margin-top: 1.1rem; padding-top: 1rem; }
+  .pipeline { margin: 1.1rem auto; }
+  .pipeline .stage { padding: 0.7rem 0.8rem; }
+  .colophon .repro { margin: 0.9rem auto; }
+  /* avoid single lines stranded at page edges */
+  p { orphans: 2; widows: 2; }
+
+  /* re-assert wide layout (page is < 720px so mobile rules fire) */
+  .abstract-stats { grid-template-columns: repeat(4, 1fr); }
+  .abstract-stats > div { border-left: 1px solid var(--rule-soft) !important; padding-left: 1.1rem !important; border-top: 0 !important; }
+  .abstract-stats > div:first-child { border-left: 0 !important; padding-left: 0 !important; }
+  .param-grid { grid-template-columns: repeat(4, 1fr); }
+  .param-grid > div { border-left: 1px solid var(--rule-soft); }
+  .param-grid > div:first-child { border-left: 0; }
+  .pipeline { flex-wrap: nowrap; }
+  .pipeline .stage { flex: 1 1 0; flex-basis: 0; min-width: 0; }
+  .pipeline .flow { display: block; }
+
+  /* pagination: keep charts/equations/callouts whole, but let TABLES flow
+     across a page boundary (header repeats, rows stay intact) so a long table
+     fills the current page instead of bumping wholesale and stranding a gap */
+  figure:not(.table-figure), .param-grid, .pipeline, .throughput, .hero-spark,
+  .equation, .repro { break-inside: avoid; }
+  tr { break-inside: avoid; }
+  thead { display: table-header-group; }
+  .table-figure { break-inside: auto; }
+  .table-figure figcaption { break-before: avoid; }
+  h1, h2, h3, .section-head { break-after: avoid; }
+  section { break-inside: auto; }
+  /* keep a section heading with the paragraph that follows it */
+  .section-head + p { break-before: avoid; }
+  /* the short closing section reads as one whole block (a clean endnote page),
+     never a one-line split tail on an otherwise empty page */
   .colophon { break-inside: avoid; }
 
-  /* 5. TABLES fit with auto layout, one line per cell */
+  /* tables: auto layout sizes columns to content (allocated names are
+     abbreviated to stems, so everything fits the page on one line) */
   .data-table { overflow: visible; }
   table { font-size: 8.7pt; width: 100%; }
-  thead th, tbody td { white-space: nowrap; padding-inline: 0.5rem; }
+  thead th, tbody td { white-space: nowrap; padding-inline: 0.55rem; }
+  tbody td .name { font-size: 8.4pt; }
 
-  /* 6. DENSITY + per-chart print heights (re-rendered on beforeprint) */
-  body { font-size: 10pt; line-height: 1.46; }
-  .masthead { padding: 0 0 0.6rem; } .masthead h1 { font-size: 2.6rem; }
-  .masthead .lede { font-size: 1.05rem; }
-  section { padding-block: 1.05rem; } .prose p { margin-bottom: 0.62rem; }
-  figure { margin: 0.85rem auto; } figcaption { margin-top: 0.5rem; font-size: 8.4pt; }
-  .equation { margin: 0.8rem auto !important; }
-  .section-head { margin-bottom: 0.7rem; }
-  h3 { margin-top: 0.9rem; }
-  p { orphans: 2; widows: 2; }
-  .toc { margin-top: 1rem; padding-top: 0.8rem; }
-  .abstract-stats { margin-top: 1rem; }
-  .colophon h2 { font-size: 1.5rem; }
-  .colophon p { margin-bottom: 0.5rem; }
-  .repro { font-size: 7.8pt; padding: 0.7rem 0.8rem; }
-
-  .chart { height: 220px; }
-  #fig-hero { height: 150px; }
-  #fig-msg { height: 150px; }
-  #fig-depth { height: 250px; }
-  #fig-latency { height: 236px; }
-  #fig-tail { height: 226px; }
+  /* compact chart heights (charts re-render at these via beforeprint, so no
+     scaling distortion) — smaller figures pack more per page, fewer gaps */
+  #fig-depth { height: 212px; }
+  #fig-latency { height: 206px; }
+  #fig-tail { height: 196px; }
   #fig-throughput { height: 196px; }
-  #fig-scaling { height: 210px; }
+  #fig-scaling { height: 200px; }
+  #fig-msg { height: 142px; }
+  .hero-spark .chart { height: 160px; }
+  /* compact the throughput callout so it sits with the friction section */
+  .throughput { margin-top: 0.7rem; padding-top: 0.7rem; }
+  .throughput .big { font-size: 2.6rem; }
+  /* compact the closing note so it packs onto the metrics page, not a lone page */
+  .colophon { padding-top: 0.3rem; }
+  .colophon .section-head { margin-bottom: 0.5rem; }
+  .colophon .section-head h2 { font-size: 1.55rem; }
+  .colophon .repro { margin: 0.6rem auto; padding: 0.65rem 1rem; }
+  .colophon .fine { margin-top: 0.5rem; }
 }

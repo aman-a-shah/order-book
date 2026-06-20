@@ -54,35 +54,22 @@
   // ticks-of-the-hardware-counter axis label
   const tk = (v) => v >= 1000 ? eps(v) : Math.round(v).toString();
 
-  /* ---- HERO: cumulative latency distribution (CDF), log-x, p50/p99 marks - */
+  /* ---- HERO: minimal cumulative latency curve (clean line + end dot, no axes,
+     mirrors the reference equity sparkline) ---- */
   R.hero = (node, w, h, data) => {
     const H = data.latency.hist, n = H.ub.length;
     const total = H.count.reduce((a, b) => a + b, 0);
     let acc = 0;
     const xs = [], ys = [];
     for (let i = 0; i < n; i++) { acc += H.count[i]; xs.push(log10(H.ub[i])); ys.push(acc / total); }
-    const m = { t: 14, r: 14, b: 24, l: 10 };
-    const xd = [log10(1), Math.max(xs[n - 1], log10(1024))], yd = [0, 1];
-    const x = lin(xd[0], xd[1], m.l, w - m.r), y = lin(yd[0], yd[1], h - m.b, m.t);
-    let out = svgOpen(w, h);
-    // x decade ticks: 1, 10, 100, 1k, 10k
-    for (let e = 0; Math.pow(10, e) <= Math.pow(10, xd[1]); e++) {
-      const xx = x(e); if (xx > w - m.r + 1) break;
-      out += line(xx, m.t, xx, h - m.b, "c-grid");
-      out += text(xx, h - m.b + 14, "c-tick c-tick-x", e === 0 ? "1" : "1e" + e);
-    }
+    const m = { t: 14, r: 14, b: 14, l: 14 };
+    const x = lin(xs[0], xs[n - 1], m.l, w - m.r), y = lin(0, 1, h - m.b, m.t);
     const px = xs.map(x), py = ys.map(y);
-    // area
+    let out = svgOpen(w, h);
+    out += line(m.l, py[0], w - m.r, py[0], "c-grid");
     out += path(`M${px[0].toFixed(2)} ${(h - m.b).toFixed(2)} ` + toPath(px, py).slice(1) + ` L${px[n - 1].toFixed(2)} ${(h - m.b).toFixed(2)} Z`, "c-area-accent");
-    // line (animated draw on screen)
-    out += path(toPath(px, py), "c-hero-line draw", ` id="hero-path"`);
-    // p50 / p99 markers (values are stated in the caption; keep labels terse)
-    [["p50", data.latency.p50], ["p99", data.latency.p99]].forEach(([lab, v]) => {
-      const xx = x(log10(v));
-      out += line(xx, m.t, xx, h - m.b, "c-marker", ` stroke-dasharray="3 3"`);
-      out += text(xx + 3, m.t + 11, "c-marker-label", lab);
-    });
-    out += text(w - m.r, m.t + 10, "c-legend", "cumulative share of events", ` text-anchor="end"`);
+    out += path(toPath(px, py), "c-line c-line-accent draw", ` style="--len:1"`);
+    out += `<circle cx="${px[n - 1].toFixed(2)}" cy="${py[n - 1].toFixed(2)}" r="3.2" class="c-dot-accent"/>`;
     return out + "</svg>";
   };
 
@@ -265,16 +252,36 @@
   /* ---- tables ---------------------------------------------------------- */
   T.tests = (node, data) => {
     const rows = data.tests.map((t) =>
-      `<tr class="${t.pass ? "row-pass" : "row-fail"}"><td class="t">${esc(t.name)}</td><td class="t">${esc(t.desc)}</td><td>${t.pass ? "PASS" : "FAIL"}</td></tr>`).join("");
+      `<tr class="${t.pass ? "row-pass" : "row-fail"}"><td><span class="name">${esc(t.name)}</span></td><td class="desc">${esc(t.desc)}</td><td class="num">${t.pass ? "PASS" : "FAIL"}</td></tr>`).join("");
     node.innerHTML =
       `<table><thead><tr><th>check</th><th>covers</th><th>result</th></tr></thead><tbody>${rows}</tbody></table>`;
   };
 
   T.trades = (node, data) => {
     const rows = data.depth.trades.map((t) =>
-      `<tr><td class="t">#${t.seq}</td><td>${t.side === "BUY" ? "BUY" : "SELL"}</td><td>${fmt.int(t.price)}</td><td>${t.qty}</td></tr>`).join("");
+      `<tr><td class="num">#${t.seq}</td><td class="num">${t.side === "BUY" ? "BUY" : "SELL"}</td><td class="num">${fmt.int(t.price)}</td><td class="num">${t.qty}</td></tr>`).join("");
     node.innerHTML =
       `<table><thead><tr><th>seq</th><th>aggressor</th><th>price</th><th>qty</th></tr></thead><tbody>${rows}</tbody></table>`;
+  };
+
+  // consolidated performance report — two key/value pairs per row (mirrors the
+  // reference Tbl 3); every value is a real measured number.
+  T.metrics = (node, data) => {
+    const L = data.latency, R = data.replay, P = data.pipeline, S = data.structure;
+    const tk = (v) => (v >= 1000 ? eps(v) : Math.round(v)) + " tk";
+    const rows = [
+      ["Replay throughput", eps(R.throughput) + "/s", "Hot-path throughput", eps(L.throughput_median) + "/s"],
+      ["Pipeline throughput · median", eps(P.throughput) + "/s", "Events benchmarked", fmt.int(L.events)],
+      ["Median latency · p50", tk(L.p50), "Mean latency", tk(L.mean)],
+      ["p90 latency", tk(L.p90), "p99 latency", tk(L.p99)],
+      ["p99.9 latency", tk(L.p999), "Max latency", tk(L.max)],
+      ["Data races (TSAN)", String(data.tsan.races), "TSAN events", fmt.int(data.tsan.events)],
+      ["PriceLevel size", S.price_level_bytes + " B", "Order size", S.order_bytes + " B"],
+      ["Ring capacity", fmt.int(S.spsc_capacity), "SIMD scan path", data.simd],
+    ];
+    const body = rows.map((r) =>
+      `<tr><td class="desc">${esc(r[0])}</td><td class="num">${esc(r[1])}</td><td class="desc">${esc(r[2])}</td><td class="num">${esc(r[3])}</td></tr>`).join("");
+    node.innerHTML = `<table><tbody>${body}</tbody></table>`;
   };
 
   /* === plumbing — copy verbatim ========================================= */
@@ -295,11 +302,11 @@
     });
   }
   function heroDraw() {
-    if (REDUCED) return;
-    const p = document.getElementById("hero-path"); if (!p) return;
+    const p = document.querySelector("#fig-hero .c-line.draw"); if (!p) return;
+    if (REDUCED) { p.style.setProperty("--len", "0"); p.classList.add("in"); return; }
     const len = p.getTotalLength();
     p.style.setProperty("--len", len);
-    requestAnimationFrame(() => requestAnimationFrame(() => p.classList.add("go")));
+    requestAnimationFrame(() => requestAnimationFrame(() => p.classList.add("in")));
   }
   function setupMotion() {
     if (REDUCED) return;

@@ -1,315 +1,306 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en" class="no-js">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>A cache-resident matching engine — Low-Latency Order Book</title>
-<meta name="description" content="A single-threaded, lock-free limit order book and matching engine in C++17: bounded memory, contiguous price levels, SPSC ingestion, and benchmarked latency.">
-<script>document.documentElement.classList.replace('no-js','js')</script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Low-Latency Order Book — A Cache-Resident Matching Engine</title>
+  <meta name="description" content="A single-threaded C++17 limit order book and matching engine: contiguous price levels, a startup object pool, lock-free SPSC ingestion, SIMD price scans, and benchmarked latency — every figure generated from a real run of the engine." />
 
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,300..700;1,8..60,400..600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <script>document.documentElement.classList.replace('no-js', 'js');</script>
 
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" crossorigin>
-<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js" crossorigin></script>
-<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js" crossorigin></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,300..700;1,8..60,400..600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
 
-<link rel="stylesheet" href="styles.css">
-<script defer src="charts.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" crossorigin="anonymous" />
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js" crossorigin="anonymous"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js" crossorigin="anonymous"></script>
+
+  <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-<div class="progress" aria-hidden="true"><span id="progress-bar"></span></div>
+  <div class="progress" aria-hidden="true"><span id="progress-bar"></span></div>
 
-<main class="wrap">
+  <header class="masthead" id="top">
+    <div class="wrap">
+      <p class="dateline"><span class="mono">Systems note</span> · single-thread C++17 · reproducible</p>
+      <h1>Low-Latency Order Book</h1>
+      <p class="lede">A single-threaded matching engine that keeps the entire hot path inside the CPU
+        cache: contiguous price levels instead of trees, a fixed startup arena instead of the
+        allocator, and a lock-free single-producer/single-consumer ring decoupling ingestion from
+        matching. Every number on this page is emitted by the engine itself.</p>
 
-  <!-- ============================================================ MASTHEAD -->
-  <header class="masthead prose">
-    <div class="dateline">
-      <span class="lead">Systems Note</span><span class="sep">/</span>
-      <span>Market Infrastructure</span><span class="sep">/</span>
-      <span class="mono" data-stat="meta.date">2026</span>
+      <dl class="abstract-stats" aria-label="Headline results">
+        <div><dt>Replay throughput · ev/s</dt><dd class="mono" data-stat="replay.throughput" data-fmt="compact">—</dd></div>
+        <div><dt>Median latency · ticks</dt><dd class="mono" data-stat="latency.p50" data-fmt="int">—</dd></div>
+        <div><dt>Data races (TSAN)</dt><dd class="mono" data-stat="tsan.races" data-fmt="int">—</dd></div>
+        <div><dt>Hot-path allocations</dt><dd class="mono">0</dd></div>
+      </dl>
+
+      <figure class="hero-spark">
+        <div id="fig-hero" class="chart" data-chart="hero"></div>
+        <figcaption>Cumulative distribution of per-event latency over
+          <span class="mono" data-stat="latency.events" data-fmt="int">—</span> add/cancel events;
+          half complete within <span class="mono" data-stat="latency.p50" data-fmt="int">—</span>
+          counter ticks.</figcaption>
+      </figure>
+
+      <nav class="toc" aria-label="Contents">
+        <a href="#feed"><span class="mono">01</span> Protocol</a>
+        <a href="#transport"><span class="mono">02</span> Transport</a>
+        <a href="#engine"><span class="mono">03</span> Matching</a>
+        <a href="#correctness"><span class="mono">04</span> Correctness</a>
+        <a href="#results"><span class="mono">05</span> Results</a>
+      </nav>
     </div>
-    <h1>A cache-resident matching engine for limit order books.</h1>
-    <p class="lede">A single-threaded C++17 order book that keeps the entire hot path inside the
-      CPU cache: contiguous price levels instead of trees, a fixed startup arena instead of the
-      allocator, and a lock-free single-producer/single-consumer ring decoupling ingestion from
-      matching. Every number on this page is emitted by the engine itself.</p>
-    <div class="byline mono">
-      <span><b>Engine</b> <span data-stat="meta.standard">C++17</span>, header-only</span>
-      <span><b>SIMD</b> <span data-stat="simd">NEON</span> price scan</span>
-      <span><b>Measured on</b> <span data-stat="meta.cpu">Apple Silicon</span></span>
-    </div>
-
-    <dl class="abstract-stats" aria-label="Headline results">
-      <div>
-        <dt>throughput · replay</dt>
-        <dd><span data-stat="replay.throughput" data-fmt="compact">5M</span><span class="unit">ev/s</span>
-          <span class="sub">decode → route → match, sustained</span></dd>
-      </div>
-      <div>
-        <dt>median latency</dt>
-        <dd><span data-stat="latency.p50">63</span><span class="unit">ticks</span>
-          <span class="sub">p50, add/cancel hot path</span></dd>
-      </div>
-      <div>
-        <dt>data races</dt>
-        <dd><span data-stat="tsan.races">0</span>
-          <span class="sub">ThreadSanitizer, <span data-stat="tsan.events" data-fmt="int">10000</span> events</span></dd>
-      </div>
-      <div>
-        <dt>hot-path allocations</dt>
-        <dd>0<span class="sub">bounded pools, no <span class="mono">new</span> while matching</span></dd>
-      </div>
-    </dl>
-
-    <figure class="hero-spark" id="hero-fig">
-      <div class="chart" id="fig-hero" data-chart="hero" role="img"
-           aria-label="Cumulative distribution of per-event latency; the median sits near 63 counter ticks."></div>
-      <figcaption><span class="fignum">Fig. 1</span> Cumulative latency distribution over
-        <span class="num" data-stat="latency.events" data-fmt="int">5,000,000</span> add/cancel events.
-        Half of all events complete in
-        <span class="num-em" data-stat="latency.p50">63</span> counter ticks or fewer; the curve
-        reaches the p99 by <span class="num-em" data-stat="latency.p99">511</span>.</figcaption>
-    </figure>
-
-    <nav class="toc" aria-label="Contents">
-      <a href="#feed"><span class="n">01</span> Feed &amp; protocol</a>
-      <a href="#transport"><span class="n">02</span> Lock-free transport</a>
-      <a href="#engine"><span class="n">03</span> Matching engine</a>
-      <a href="#correctness"><span class="n">04</span> Correctness</a>
-      <a href="#performance"><span class="n">05</span> Performance</a>
-    </nav>
   </header>
 
-  <!-- ============================================================== §01 FEED -->
-  <section id="feed" class="prose">
-    <div class="section-head"><span class="section-no mono">01</span><h2>The feed and its binary protocol</h2></div>
-    <p>The engine consumes a fixed-width binary feed: every command — limit, market, cancel, modify,
-      replace — is a <strong><span data-stat="structure.msg_bytes">40</span>-byte little-endian
-      record</strong>. Fixed width means the decoder never branches on length and the producer never
-      allocates: messages are blitted into the ring as raw bytes and parsed on the far side.</p>
+  <main class="wrap">
 
-    <figure>
-      <div class="chart" id="fig-msg" data-chart="msg" role="img"
-           aria-label="Byte layout of the 40-byte feed message: type, side, order id, price, quantity, replacement id, symbol, magic, reserved."></div>
-      <figcaption><span class="fignum">Fig. 2</span> The wire record. Order-id fields are shaded
-        crimson, the <span class="mono">'OBL1'</span> magic trailer slate. Decode validates the magic
-        and the type/side ranges before a message is admitted, so a corrupt frame is rejected rather
-        than matched.</figcaption>
-    </figure>
-
-    <p>A frame is accepted only when its trailing magic word equals
-      <span class="mono">0x4F424C31</span> (ASCII <span class="mono">"OBL1"</span>) and its type and
-      side bytes are in range; otherwise it is dropped at the boundary. The replay benchmark on this
-      page round-trips a recorded stream through this exact codec —
-      <span class="num-em" data-stat="replay.events" data-fmt="int">1,100,000</span> encode/decode/match
-      cycles — with <strong>zero</strong> rejects.</p>
-  </section>
-
-  <!-- ========================================================= §02 TRANSPORT -->
-  <section id="transport" class="prose">
-    <div class="section-head"><span class="section-no mono">02</span><h2>Lock-free transport</h2></div>
-    <p>Ingestion and matching run as two stages joined by a single-producer/single-consumer ring
-      buffer. There is no mutex and no condition variable: the only shared state is a pair of
-      64-bit cursors. The capacity is a power of two, so the slot index is a mask, not a modulo:</p>
-
-    <p class="equation">\[ \operatorname{slot}(i) \;=\; i \bmod N \;=\; i \mathbin{\&} (N-1),
-       \qquad N = 2^{16} = \texttt{65{,}536}\ \text{slots} \]</p>
-
-    <div class="pipeline" aria-label="Pipeline: feed handler, SPSC ring, matching engine, order book">
-      <div class="stage"><span class="sn">01</span><span class="sl">Feed handler</span><span class="ss">core 0 · push bytes</span></div>
-      <div class="flow" aria-hidden="true">→</div>
-      <div class="stage hot"><span class="sn">02</span><span class="sl">SPSC ring</span><span class="ss">atomic cursors · alignas(64)</span></div>
-      <div class="flow" aria-hidden="true">→</div>
-      <div class="stage"><span class="sn">03</span><span class="sl">Matching engine</span><span class="ss">core 1 · pop &amp; match</span></div>
-      <div class="flow" aria-hidden="true">→</div>
-      <div class="stage"><span class="sn">04</span><span class="sl">Order book</span><span class="ss">flat price levels</span></div>
-    </div>
-
-    <p>Correctness rests on release/acquire ordering rather than sequential consistency. The producer
-      publishes a slot with a <span class="mono">store(tail, release)</span>; the consumer observes it
-      with a <span class="mono">load(tail, acquire)</span>. That single edge <em>synchronizes-with</em>
-      the read, guaranteeing the buffer write is visible before the slot is dequeued — the minimum
-      barrier the hardware needs, and no more. The ring is <strong>full</strong> when
-      <span class="mono">tail − head = N</span> and <strong>empty</strong> when
-      <span class="mono">tail = head</span>; the two cursors sit on separate 64-byte cache lines via
-      <span class="mono">alignas(64)</span> so the producer and consumer never invalidate each other's
-      line. ThreadSanitizer (§04) exercises this path and reports
-      <span class="num-em" data-stat="tsan.races">0</span> races.</p>
-  </section>
-
-  <!-- ============================================================ §03 ENGINE -->
-  <section id="engine" class="prose">
-    <div class="section-head"><span class="section-no mono">03</span><h2>The matching engine and its memory</h2></div>
-    <p>The book is the part a textbook would get wrong. A <span class="mono">std::map</span> of price
-      levels is asymptotically tidy and cache-hostile: every node is a pointer chase into cold heap.
-      Here both sides are <strong>fixed-size contiguous arrays</strong> of price levels, sorted by
-      price; orders are drawn from a startup object pool and linked intrusively within each level.
-      A <span class="mono">PriceLevel</span> is exactly
-      <span class="num-em" data-stat="structure.price_level_bytes">32</span> bytes — one half cache
-      line, the width the SIMD scan loads at a time.</p>
-
-    <p>Resting orders obey strict <strong>price-time priority</strong>. For two resting bids
-      \(a,b\), \(a\) executes first exactly when</p>
-    <p class="equation">\[ a \prec b \iff p_a > p_b \;\lor\; \bigl(p_a = p_b \,\wedge\, t_a < t_b\bigr), \]</p>
-    <p>with the price comparison reversed for asks. A <em>modify</em> that only reduces quantity keeps
-      the order's place in line; a <em>cancel-replace</em> deliberately forfeits it. The cumulative
-      depth below is a two-sided book built and matched entirely by the engine, then snapshotted:</p>
-
-    <figure>
-      <div class="chart" id="fig-depth" data-chart="depth" role="img"
-           aria-label="Cumulative market depth: bid depth rising to the left of the mid in crimson, ask depth to the right in slate."></div>
-      <figcaption><span class="fignum">Fig. 3</span> Cumulative depth after two crossing market orders
-        consume the touch. Best bid <span class="num" data-stat="depth.best_bid">9999</span>, best ask
-        <span class="num" data-stat="depth.best_ask">10002</span>, a
-        <span class="num-em" data-stat="depth.spread">3</span>-tick spread. The staircase is the
-        engine's own <span class="mono">bid_depth()/ask_depth()</span> snapshot — internal storage is
-        never exposed.</figcaption>
-    </figure>
-
-    <p>The crossing prints a deterministic trade tape:</p>
-    <figure class="table-figure">
-      <div class="data-table" data-chart="trades"></div>
-      <figcaption><span class="fignum">Tbl. 1</span> The
-        <span class="num" data-stat="depth.trade_count">6</span> trades generated by the snapshot
-        scenario, each tagged with the aggressor side, price, and filled quantity.</figcaption>
-    </figure>
-
-    <p>Because every container is fixed at construction, the engine's working set is bounded and known
-      ahead of time:</p>
-    <p class="equation">\[ M \;=\; N_o\,\operatorname{sizeof}(\text{Order})
-       \;+\; L\,\operatorname{sizeof}(\text{PriceLevel})
-       \;+\; C\,\operatorname{sizeof}(\text{Entry}), \]</p>
-
-    <div class="param-grid" aria-label="Engine structural parameters">
-      <div><span class="k">sizeof PriceLevel</span><span class="v"><span data-stat="structure.price_level_bytes">32</span> B</span><span class="d">one 256-bit SIMD / half-cache-line record</span></div>
-      <div><span class="k">sizeof Order</span><span class="v"><span data-stat="structure.order_bytes">40</span> B</span><span class="d">pooled, intrusively linked</span></div>
-      <div><span class="k">ring capacity</span><span class="v"><span data-stat="structure.spsc_capacity" data-fmt="int">65536</span></span><span class="d">power-of-two SPSC slots</span></div>
-      <div><span class="k">book arena</span><span class="v"><span data-stat="structure.book_mb">8.6</span> MB</span><span class="d">resident, allocated once</span></div>
-    </div>
-
-    <p>When a marketable order arrives, the engine scans the price array with a vector compare —
-      AVX2 on x86, NEON on Apple Silicon, scalar elsewhere — testing eight (or four) levels per
-      instruction and reading the first crossing index from the comparison mask. The short, hot array
-      stays in L1; the scan finishes before a tree's first pointer dereference would have returned
-      from memory.</p>
-  </section>
-
-  <!-- ======================================================= §04 CORRECTNESS -->
-  <section id="correctness" class="prose">
-    <div class="section-head"><span class="section-no mono">04</span><h2>Correctness and race-freedom</h2></div>
-    <p>Speed claims are only worth as much as the correctness underneath them. The engine ships with a
-      deterministic test suite, a golden-file replay, and a sanitizer pass over the threaded pipeline.
-      Every check below runs in the build that produced this page:</p>
-
-    <figure class="table-figure">
-      <div class="data-table" data-chart="tests"></div>
-      <figcaption><span class="fignum">Tbl. 2</span> Verification matrix. A filled crimson dot marks a
-        passing check; the status is also spelled out, so the table never relies on color alone.</figcaption>
-    </figure>
-
-    <p>The threaded pipeline is then rebuilt with <span class="mono">-fsanitize=thread</span> and driven
-      with <span class="num" data-stat="tsan.events" data-fmt="int">10000</span> rapid-fire events
-      across the producer, ring, and consumer. ThreadSanitizer reports
-      <span class="num-em" data-stat="tsan.races">0</span> data races — empirical backing for the
-      release/acquire reasoning in §02, not a substitute for it.</p>
-  </section>
-
-  <!-- ======================================================= §05 PERFORMANCE -->
-  <section id="performance" class="prose">
-    <div class="section-head"><span class="section-no mono">05</span><h2>Latency and throughput</h2></div>
-    <p>Latency is timed per event with the hardware cycle counter — <span class="mono">__rdtsc()</span>
-      on x86, the virtual counter on ARM — and bucketed into a power-of-two histogram, where bucket
-      \(b\) collects every event whose tick count falls in its octave:</p>
-    <p class="equation">\[ b(x) = \lfloor \log_2 x \rfloor, \qquad
-       \text{bucket } b \text{ covers } \left(2^{b},\, 2^{b+1}\right]. \]</p>
-
-    <figure>
-      <div class="chart" id="fig-latency" data-chart="latency" role="img"
-           aria-label="Per-event latency distribution on a logarithmic count axis, with p50 and p99 marked."></div>
-      <figcaption><span class="fignum">Fig. 4</span> Per-event add/cancel latency, counts on a log
-        axis. The mass sits in the low-tick octaves — p50 at
-        <span class="num-em" data-stat="latency.p50">63</span>, p99 at
-        <span class="num-em" data-stat="latency.p99">511</span> ticks — with a thin tail from
-        scheduler interrupts the single thread cannot mask.</figcaption>
-    </figure>
-
-    <p>Plotting the tail by percentile shows the same story for both the bare hot path and the full
-      decode→route→match replay: flat through the body, with the climb deferred deep into the nines.</p>
-
-    <figure>
-      <div class="chart" id="fig-tail" data-chart="tail" role="img"
-           aria-label="Tail latency by percentile for the add/cancel hot path and the binary replay, on a log tick axis."></div>
-      <figcaption><span class="fignum">Fig. 5</span> Tail latency by percentile (log ticks). The
-        replay path (dashed slate) carries decode and symbol routing on top of matching, so it sits
-        above the bare hot path (crimson) — both stay bounded to the p99.9.</figcaption>
-    </figure>
-
-    <div class="throughput">
-      <div class="big"><span data-stat="replay.throughput" data-fmt="compact">5M</span>
-        <span class="unit">events / second, decode → route → match</span></div>
-      <p>The design target was 2&nbsp;million events per second on one thread. Every workload clears
-        it: the single-thread paths by several times over, the two-thread pipeline — which pays for
-        a cross-core handoff — by the median of its size sweep. All figures are medians of repeated
-        runs on a loaded laptop, so pinned, isolated production cores would read higher.</p>
-    </div>
-
-    <figure>
-      <div class="chart" id="fig-throughput" data-chart="throughput" role="img"
-           aria-label="Throughput of three workloads against the 2 million events per second target line."></div>
-      <figcaption><span class="fignum">Fig. 6</span> Throughput by workload against the
-        <span class="num">2M</span>/s target (crimson). The replay bar (accent) is the headline
-        figure: a full binary pipeline, not an isolated micro-benchmark. The pipeline bar is the
-        median of the size sweep in Fig.&nbsp;7.</figcaption>
-    </figure>
-
-    <p>Throughput holds as the workload grows; smaller runs read higher because the working set stays
-      warm in cache, which is itself the point of the flat layout.</p>
-
-    <figure>
-      <div class="chart" id="fig-scaling" data-chart="scaling" role="img"
-           aria-label="Pipeline throughput as a function of events per run, on a logarithmic size axis."></div>
-      <figcaption><span class="fignum">Fig. 7</span> SPSC pipeline throughput versus run size (log).
-        The engine sustains multi-million-event-per-second matching across two orders of magnitude of
-        batch size.</figcaption>
-    </figure>
-
-    <p class="note"><b>How to read the latency numbers.</b> The counter unit is architecture-specific —
-      ARM's virtual counter ticks slower than an x86 TSC cycle — so the ticks here are honest relative
-      magnitudes, not nanoseconds. For a nanosecond claim, pin threads to isolated cores, disable
-      frequency scaling, and convert ticks with the measured invariant counter frequency, as
-      <span class="mono">PERFORMANCE.md</span> describes.</p>
-  </section>
-
-  <!-- ============================================================ COLOPHON -->
-  <section class="colophon prose">
-    <h2>Colophon</h2>
-    <div class="cols">
-      <div>
-        <p>The engine is header-only C++17 — flat price-level arrays, a startup object pool, an
-          open-addressed order index, a lock-free SPSC ring, and SIMD price scans — built with a plain
-          Makefile. This note is a single HTML page printed to PDF through headless Chrome; every
-          figure is generated by <span class="mono">site_export</span>, which runs the real engine and
-          emits the <span class="mono">data.json</span> the page binds to. No number is hand-written.</p>
-        <p class="note" style="border:0;padding:0;margin:0">Built from
-          <span class="mono" data-stat="meta.git">main</span> ·
-          <span class="mono" data-stat="meta.compiler">clang</span> ·
-          generated <span class="mono" data-stat="meta.generated_utc">—</span>.</p>
+    <!-- Pipeline overview -->
+    <section class="prose pipeline-section" aria-label="Pipeline">
+      <p>The system is split into two execution domains pinned to separate cores: a
+        <strong>feed handler</strong> that does nothing but push raw bytes, and a
+        <strong>matching engine</strong> that pops them, decodes, routes by symbol, and matches.
+        They share only a lock-free ring buffer — no mutex, no allocation, no shared mutable state on
+        the hot path.</p>
+      <div class="pipeline" id="pipeline">
+        <div class="stage"><span class="mono num">01</span><span class="lbl">Feed handler</span><span class="sub">core 0 · push bytes</span></div>
+        <div class="flow" aria-hidden="true">→</div>
+        <div class="stage"><span class="mono num">02</span><span class="lbl">SPSC ring</span><span class="sub">atomic cursors · alignas(64)</span></div>
+        <div class="flow" aria-hidden="true">→</div>
+        <div class="stage accent-stage"><span class="mono num">03</span><span class="lbl">Matching engine</span><span class="sub">flat levels · SIMD scan</span></div>
+        <div class="flow" aria-hidden="true">→</div>
+        <div class="stage"><span class="mono num">04</span><span class="lbl">Order book</span><span class="sub">pooled · price-time</span></div>
       </div>
-      <div>
-        <pre class="repro"><span class="c"># reproduce every figure</span>
-make <span class="a">test</span>      <span class="c"># correctness</span>
-make <span class="a">tsan</span>      <span class="c"># 0 data races</span>
-make <span class="a">site</span>      <span class="c"># engine → JSON</span>
+      <p class="frozen-note"><span class="mono">bounded →</span> every container is sized at
+        construction. The matching loop never calls <span class="mono">new</span> or
+        <span class="mono">malloc</span>, so per-event latency carries no allocator jitter and the
+        working set is known ahead of time.</p>
+    </section>
 
-PYTHONPATH=src \
-  python3 site/export_data.py
-bash site/build_pdf.sh</pre>
+    <!-- 01 PROTOCOL -->
+    <section id="feed" class="prose">
+      <div class="section-head">
+        <span class="mono section-no">01</span>
+        <h2>The binary feed</h2>
       </div>
-    </div>
-  </section>
+      <p>The engine consumes a fixed-width binary feed: every command — limit, market, cancel, modify,
+        replace — is a <strong><span data-stat="structure.msg_bytes" data-fmt="int">40</span>-byte
+        little-endian record</strong>. Fixed width means the decoder never branches on length and the
+        producer never allocates; messages are blitted into the ring as raw bytes and parsed on the
+        far side.</p>
 
-</main>
+      <figure>
+        <div id="fig-msg" class="chart" data-chart="msg"></div>
+        <figcaption><span class="fignum">Fig.&nbsp;1</span> The wire record. Order-id fields are
+          shaded crimson, the <span class="mono">'OBL1'</span> magic trailer slate. Decode validates
+          the magic word and the type/side ranges before a message is admitted, so a corrupt frame is
+          rejected rather than matched.</figcaption>
+      </figure>
+
+      <p>A frame is accepted only when its trailing magic word equals
+        <span class="mono">0x4F424C31</span> (ASCII <span class="mono">"OBL1"</span>) and its type and
+        side bytes are in range; otherwise it is dropped at the boundary. The replay benchmark on this
+        page round-trips a recorded stream through this exact codec —
+        <span class="mono" data-stat="replay.events" data-fmt="int">—</span> encode / decode / match
+        cycles — with zero rejects.</p>
+    </section>
+
+    <!-- 02 TRANSPORT -->
+    <section id="transport" class="prose">
+      <div class="section-head">
+        <span class="mono section-no">02</span>
+        <h2>Lock-free transport</h2>
+      </div>
+      <p>Ingestion and matching are joined by a single-producer/single-consumer ring buffer. The only
+        shared state is a pair of 64-bit cursors. The capacity is a power of two, so the slot index is
+        a bit-mask rather than a modulo:</p>
+      <p class="equation">\[ \operatorname{slot}(i) = i \bmod N = i \mathbin{\&} (N-1), \qquad N = 2^{16} = 65{,}536\ \text{slots}. \]</p>
+      <p>The ring is <strong>full</strong> when \(\text{tail} - \text{head} = N\) and
+        <strong>empty</strong> when \(\text{tail} = \text{head}\). Correctness rests on release/acquire
+        ordering, not sequential consistency: the producer publishes a slot with a
+        <span class="mono">store(tail, release)</span>; the consumer observes it with a
+        <span class="mono">load(tail, acquire)</span>. That single edge <em>synchronizes-with</em> the
+        read, guaranteeing the buffer write is visible before the slot is dequeued — the minimum
+        barrier the hardware needs, and no more.</p>
+
+      <div class="param-grid" aria-label="Ring buffer parameters">
+        <div><span class="pk mono">N</span><span class="pv mono" data-stat="structure.spsc_capacity" data-fmt="int">—</span><span class="pd">ring slots (power of two)</span></div>
+        <div><span class="pk mono">align</span><span class="pv mono" data-stat="structure.cache_line" data-fmt="int">—</span><span class="pd">byte cursor separation</span></div>
+        <div><span class="pk mono">cmd</span><span class="pv mono" data-stat="structure.command_bytes" data-fmt="int">—</span><span class="pd">bytes per queued command</span></div>
+        <div><span class="pk mono">order</span><span class="pv mono" data-stat="structure.msg_bytes" data-fmt="int">—</span><span class="pd">bytes on the wire</span></div>
+      </div>
+
+      <p>Producer and consumer cursors sit on separate 64-byte cache lines via
+        <span class="mono">alignas(64)</span>, so the two threads never invalidate each other's line
+        (false sharing). There is no compare-and-swap: one producer and one consumer make plain
+        load/store with acquire/release sufficient, which is why an SPSC ring beats a multi-producer
+        queue at the hardware limit.</p>
+    </section>
+
+    <!-- 03 MATCHING -->
+    <section id="engine" class="prose">
+      <div class="section-head">
+        <span class="mono section-no">03</span>
+        <h2>The matching engine and its memory</h2>
+      </div>
+      <p>A <span class="mono">std::map</span> of price levels is asymptotically tidy and cache-hostile:
+        every node is a pointer chase into cold heap. Here both sides are <strong>fixed-size
+        contiguous arrays</strong> of price levels, sorted by price; orders are drawn from a startup
+        object pool and linked intrusively within each level. A <span class="mono">PriceLevel</span>
+        is exactly <span class="mono" data-stat="structure.price_level_bytes" data-fmt="int">32</span>
+        bytes — one half cache line, the width the SIMD scan loads at a time.</p>
+      <p>Resting orders obey strict <strong>price-time priority</strong>. For two resting bids
+        \(a, b\), \(a\) executes first exactly when</p>
+      <p class="equation">\[ a \prec b \iff p_a > p_b \;\lor\; \bigl(p_a = p_b \,\wedge\, t_a < t_b\bigr), \]</p>
+      <p>with the price comparison reversed for asks. A <em>modify</em> that only reduces quantity
+        keeps the order's place in line; a <em>cancel-replace</em> deliberately forfeits it. Because
+        every container is fixed at construction, the working set is bounded and known ahead of time:</p>
+      <p class="equation">\[ M = N_o\cdot\operatorname{sizeof}(\text{Order}) + L\cdot\operatorname{sizeof}(\text{PriceLevel}) + C\cdot\operatorname{sizeof}(\text{Entry}). \]</p>
+
+      <figure>
+        <div id="fig-depth" class="chart" data-chart="depth"></div>
+        <figcaption><span class="fignum">Fig.&nbsp;2</span> Cumulative market depth after two crossing
+          market orders consume the touch. Best bid
+          <span class="mono" data-stat="depth.best_bid" data-fmt="int">—</span>, best ask
+          <span class="mono" data-stat="depth.best_ask" data-fmt="int">—</span>, a
+          <span class="mono" data-stat="depth.spread" data-fmt="int">—</span>-tick spread. The
+          staircase is the engine's own <span class="mono">bid_depth()/ask_depth()</span> snapshot —
+          internal storage is never exposed.</figcaption>
+      </figure>
+
+      <div class="param-grid" aria-label="Engine structural parameters">
+        <div><span class="pk">PriceLevel</span><span class="pv mono"><span data-stat="structure.price_level_bytes" data-fmt="int">—</span> B</span><span class="pd">256-bit SIMD record</span></div>
+        <div><span class="pk">Order</span><span class="pv mono"><span data-stat="structure.order_bytes" data-fmt="int">—</span> B</span><span class="pd">pooled, intrusively linked</span></div>
+        <div><span class="pk">ring</span><span class="pv mono" data-stat="structure.spsc_capacity" data-fmt="int">—</span><span class="pd">power-of-two slots</span></div>
+        <div><span class="pk">arena</span><span class="pv mono"><span data-stat="structure.book_mb" data-fmt="num1">—</span> MB</span><span class="pd">resident, allocated once</span></div>
+      </div>
+
+      <p>When a marketable order arrives, the engine scans the contiguous price array with a vector
+        compare — AVX2 on x86, NEON on Apple Silicon, scalar elsewhere — testing eight (or four) levels
+        per instruction and reading the first crossing index off the comparison mask. The crossing
+        prints a deterministic trade tape:</p>
+
+      <figure class="table-figure">
+        <div id="tbl-trades" class="data-table" data-chart="trades"></div>
+        <figcaption><span class="fignum">Tbl.&nbsp;1</span> The
+          <span class="mono" data-stat="depth.trade_count" data-fmt="int">—</span> trades generated by
+          the depth scenario, each tagged with the aggressor side, fill price, and quantity.</figcaption>
+      </figure>
+    </section>
+
+    <!-- 04 CORRECTNESS -->
+    <section id="correctness" class="prose">
+      <div class="section-head">
+        <span class="mono section-no">04</span>
+        <h2>Correctness and race-freedom</h2>
+      </div>
+      <p>Speed claims are only worth as much as the correctness underneath them. The engine ships with
+        a deterministic test suite, a golden-file replay, and a ThreadSanitizer pass over the threaded
+        pipeline. Every check below runs in the build that produced this page:</p>
+
+      <figure class="table-figure">
+        <div id="tbl-tests" class="data-table" data-chart="tests"></div>
+        <figcaption><span class="fignum">Tbl.&nbsp;2</span> Verification matrix.
+          <span class="swatch swatch-pair"></span> passing check ·
+          <span class="swatch swatch-noise"></span> failing check — status is also spelled out, so the
+          table never relies on color alone.</figcaption>
+      </figure>
+
+      <p>The threaded pipeline is then rebuilt with <span class="mono">-fsanitize=thread</span> and
+        driven with <span class="mono" data-stat="tsan.events" data-fmt="int">—</span> rapid-fire
+        events across the producer, ring, and consumer. ThreadSanitizer reports
+        <span class="mono" data-stat="tsan.races" data-fmt="int">—</span> data races — empirical
+        backing for the release/acquire reasoning in §02, not a substitute for it.</p>
+    </section>
+
+    <!-- 05 RESULTS -->
+    <section id="results" class="prose">
+      <div class="section-head">
+        <span class="mono section-no">05</span>
+        <h2>Latency and throughput</h2>
+      </div>
+      <p>Latency is timed per event with the hardware cycle counter — <span class="mono">__rdtsc()</span>
+        on x86, the virtual counter on ARM — and bucketed into a power-of-two histogram, where bucket
+        \(b\) collects every event whose tick count falls in its octave:</p>
+      <p class="equation">\[ b(x) = \lfloor \log_2 x \rfloor, \qquad \text{bucket } b \text{ covers } \left(2^{b},\, 2^{b+1}\right]. \]</p>
+
+      <figure>
+        <div id="fig-latency" class="chart" data-chart="latency"></div>
+        <figcaption><span class="fignum">Fig.&nbsp;3</span> Per-event add/cancel latency, counts on a
+          log axis. The mass sits in the low-tick octaves — p50 at
+          <span class="mono" data-stat="latency.p50" data-fmt="int">—</span>, p99 at
+          <span class="mono" data-stat="latency.p99" data-fmt="int">—</span> ticks — with a thin tail
+          from scheduler interrupts the single thread cannot mask.</figcaption>
+      </figure>
+
+      <p>Plotting the tail by percentile shows the same story for both the bare hot path and the full
+        decode → route → match replay: flat through the body, with the climb deferred deep into the
+        nines.</p>
+
+      <figure>
+        <div id="fig-tail" class="chart" data-chart="tail"></div>
+        <figcaption><span class="fignum">Fig.&nbsp;4</span> Tail latency by percentile (log ticks).
+          The replay path (dashed slate) carries decode and symbol routing on top of matching, so it
+          sits above the bare hot path (crimson) — both stay bounded to the p99.9.</figcaption>
+      </figure>
+
+      <div class="throughput">
+        <div class="big mono" data-stat="replay.throughput" data-fmt="compact">—</div>
+        <p>events per second through the full binary pipeline. The design target was
+          <span class="mono">2M</span>/s on one thread; every workload clears it, and pinned, isolated
+          production cores would read higher than this loaded laptop.</p>
+      </div>
+
+      <figure>
+        <div id="fig-throughput" class="chart" data-chart="throughput"></div>
+        <figcaption><span class="fignum">Fig.&nbsp;5</span> Throughput by workload against the
+          <span class="mono">2M</span>/s target (crimson). The replay bar (accent) is the headline
+          figure: a full binary pipeline, not an isolated micro-benchmark. The pipeline bar is the
+          median of the size sweep in Fig.&nbsp;6.</figcaption>
+      </figure>
+
+      <p>Throughput holds as the workload grows; smaller runs read higher because the working set
+        stays warm in cache, which is itself the point of the flat layout.</p>
+
+      <figure>
+        <div id="fig-scaling" class="chart" data-chart="scaling"></div>
+        <figcaption><span class="fignum">Fig.&nbsp;6</span> SPSC pipeline throughput versus run size
+          (log). The engine sustains multi-million-event-per-second matching across two orders of
+          magnitude of batch size.</figcaption>
+      </figure>
+
+      <figure class="table-figure">
+        <div id="tbl-metrics" class="data-table" data-chart="metrics"></div>
+        <figcaption><span class="fignum">Tbl.&nbsp;3</span> Full performance report — latency
+          percentiles, throughput by workload, and the engine's bounded structural sizes. Latency is
+          in hardware counter ticks (<span class="mono">tk</span>), architecture-specific magnitudes
+          rather than nanoseconds.</figcaption>
+      </figure>
+    </section>
+
+    <section class="prose colophon">
+      <div class="section-head"><h2>Colophon</h2></div>
+      <p>Header-only C++17 — flat price-level arrays, a startup object pool, an open-addressed order
+        index, a lock-free SPSC ring, and SIMD price scans — built with a plain Makefile. The page is
+        printed to PDF through headless Chrome; every figure is produced by a real engine run:</p>
+      <pre class="repro mono"><code>make site &amp;&amp; PYTHONPATH=src python3 site/export_data.py</code></pre>
+      <p class="fine">Built from <span class="mono" data-stat="meta.git">—</span> ·
+        <span class="mono" data-stat="meta.compiler">—</span> ·
+        <span class="mono" data-stat="simd">—</span> price scan ·
+        <span class="mono" data-stat="meta.cpu">—</span> ·
+        generated <span class="mono" data-stat="meta.generated_utc">—</span> · deterministic build.</p>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      <span class="mono">low-latency-order-book</span>
+      <a href="#top">back to top ↑</a>
+    </div>
+  </footer>
+
+  <script src="charts.js" defer></script>
 </body>
 </html>
